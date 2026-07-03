@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sayuri &amp; Sopholov — Las Muñecas del Estado | kaotikaz.com</title>
+  <meta name="description" content="Las Muñecas del Estado en vivo. Boletos directos, sin intermediarios. Reggaetón mexa desde la periferia.">
+
+  <!-- Tipografías Y2K: bubble (látex), consola LCD, matriz de puntos -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik+Bubbles&family=VT323&family=Press+Start+2P&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- Textura VHS global -->
+  <div class="vhs-overlay" aria-hidden="true"></div>
+  <div class="tracking-glitch" aria-hidden="true"></div>
+
+  <!-- ═══════════ MARQUESINA ═══════════ -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee__inner">
+      ★ MUÑECAS DEL ESTADO ★ SECUNENA ★ VEO VEO ★ NENAS MAFIOSAS ★ 2 PA' 1 ★ DIRECTO DESDE LA PERIFERIA ★ BOLETOS SIN INTERMEDIARIOS ★&nbsp;
+      ★ MUÑECAS DEL ESTADO ★ SECUNENA ★ VEO VEO ★ NENAS MAFIOSAS ★ 2 PA' 1 ★ DIRECTO DESDE LA PERIFERIA ★ BOLETOS SIN INTERMEDIARIOS ★&nbsp;
+    </div>
+  </div>
+
+  <!-- ═══════════ HERO ═══════════ -->
+  <header class="hero">
+    <!-- Sticker bomb -->
+    <span class="sticker sticker--1">REGGAETÓN MEXA</span>
+    <span class="sticker sticker--2">100% PACA</span>
+    <span class="sticker sticker--3">CHUGG</span>
+    <span class="sticker sticker--4">NENAS DE VECINDARIO</span>
+
+    <div>
+      <div class="hero__badge">● REC · EN VIVO · [FECHA DEL EVENTO]</div>
+      <h1 class="hero__title">SAYURI <span class="amp">&amp;</span> SOPHOLOV</h1>
+      <p class="hero__subtitle">LAS MUÑECAS DEL ESTADO</p>
+      <a class="hero__cta" href="#registro">🎫 QUIERO MI BOLETO</a>
+    </div>
+  </header>
+
+  <!-- ═══════════ INFO DEL EVENTO (boleto retro + LCD) ═══════════ -->
+  <section class="section reveal" id="evento">
+    <h2 class="section__title">El Evento</h2>
+    <p class="section__kicker">// checa la pantallita, no te pierdas</p>
+
+    <div class="ticket glass">
+      <div class="ticket__body">
+        <div class="lcd">
+          <span class="lcd-label">EVENTO</span>
+          [NOMBRE DEL EVENTO]<br>
+          <span class="lcd-label">FECHA</span>
+          [DD · MES · 2026] — [HH:MM] HRS<br>
+          <span class="lcd-label">LUGAR</span>
+          [VENUE / DIRECCIÓN]<br>
+          <span class="lcd-label">PRECIO</span>
+          $400 MXN <span class="cursor">▮</span>
+        </div>
+      </div>
+      <div class="ticket__stub">
+        <div class="barcode" aria-hidden="true"></div>
+        <span class="ticket__folio">FOLIO: K-000</span>
+        <span>ADMIT ONE<br>· ACCESO GENERAL ·</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ REPRODUCTOR WINAMP ═══════════ -->
+  <section class="section reveal" id="musica">
+    <h2 class="section__title">Ponle Play</h2>
+    <p class="section__kicker">// kaotikaz_player v1.0 — arrástralo como en el 2004</p>
+
+    <div class="player-zone">
+      <div class="winamp" id="winamp">
+        <div class="winamp__titlebar" id="winampDrag">
+          <span>KAOTIKAZ PLAYER</span>
+          <span class="winamp__dots"><span></span><span></span><span></span></span>
+        </div>
+
+        <div class="winamp__display">
+          <div class="winamp__track"><span class="scrolling" id="trackName">SAYURI &amp; SOPHOLOV — SELECCIONA UNA ROLA ··· </span></div>
+          <div class="winamp__time" id="trackTime">00:00</div>
+        </div>
+
+        <div class="eq" id="eq" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+
+        <div class="winamp__controls">
+          <button class="wa-btn" id="btnPrev" title="Anterior">⏮</button>
+          <button class="wa-btn wa-btn--play" id="btnPlay" title="Play/Pausa">▶</button>
+          <button class="wa-btn" id="btnStop" title="Stop">⏹</button>
+          <button class="wa-btn" id="btnNext" title="Siguiente">⏭</button>
+        </div>
+
+        <ul class="winamp__playlist" id="playlist">
+          <!-- TODO: reemplazar data-src con previews reales (mp3 de 30s) en /assets/audio/ -->
+          <li data-src="assets/audio/secunena.mp3"><span>1. Secunena</span><span>0:30</span></li>
+          <li data-src="assets/audio/munecas.mp3"><span>2. Muñecas del Estado</span><span>0:30</span></li>
+          <li data-src="assets/audio/veoveo.mp3"><span>3. Veo Veo</span><span>0:30</span></li>
+          <li data-src="assets/audio/2pa1.mp3"><span>4. 2 pa' 1</span><span>0:30</span></li>
+        </ul>
+
+        <audio id="audioEl"></audio>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ REGISTRO / COMPRA (01-800, en 2 pasos) ═══════════ -->
+  <section class="section reveal" id="registro">
+    <h2 class="section__title">Marca y Aparta</h2>
+    <p class="section__kicker">// línea directa 01-800-KAOTIKAZ · dos pasos, sin enredos</p>
+
+    <!-- Indicador de pasos -->
+    <div class="steps" role="tablist" aria-label="Pasos de compra">
+      <div class="step active" id="stepTab1"><span class="step__num">PASO 1</span>Tus datos</div>
+      <div class="step__line" aria-hidden="true"></div>
+      <div class="step" id="stepTab2"><span class="step__num">PASO 2</span>Pago y captura</div>
+    </div>
+
+    <!-- Aviso: qué vas a necesitar -->
+    <div class="aviso glass">
+      <span class="aviso__icon">⚠</span>
+      <div>
+        <strong>ANTES DE MARCAR, TEN A LA MANO:</strong><br>
+        1) Tu app del banco para hacer una <strong>transferencia SPEI</strong>.<br>
+        2) La <strong>CLABE de la cuenta DESDE la que vas a pagar</strong> — con ella validamos tu pago.<br>
+        Tu boleto QR llega por correo en menos de 6 horas tras validar.
+      </div>
+    </div>
+
+    <form id="formCompra" novalidate>
+      <!-- Honeypot anti-bots: invisible para humanos, los bots lo llenan -->
+      <input type="text" name="website" id="hpField" tabindex="-1" autocomplete="off" aria-hidden="true"
+             style="position:absolute; left:-9999px; height:0; opacity:0">
+
+      <!-- ═══ PASO 1: DATOS + CANTIDAD ═══ -->
+      <div class="registro wizard-step" id="paso1">
+        <div class="form-card glass">
+          <div class="field" data-field="nombre">
+            <label for="inNombre">Nombre completo</label>
+            <input type="text" id="inNombre" name="nombre" maxlength="80" placeholder="¿Cómo te llamas, nena/nene?" autocomplete="name">
+            <p class="form-error">Solo letras y espacios (3 a 80 caracteres).</p>
+          </div>
+
+          <div class="field" data-field="email">
+            <label for="inEmail">Correo electrónico</label>
+            <input type="email" id="inEmail" name="email" maxlength="100" placeholder="aqui-llega-tu-boleto@correo.com" autocomplete="email">
+            <p class="form-hint">Aquí te mandamos tu QR. Revísalo bien.</p>
+            <p class="form-error">Ese correo no se ve válido.</p>
+          </div>
+
+          <div class="field" data-field="whatsapp">
+            <label for="inWhats">WhatsApp <em style="opacity:.6">(opcional)</em></label>
+            <input type="text" id="inWhats" name="whatsapp" inputmode="numeric" maxlength="10" placeholder="10 dígitos, por si hay bronca con tu pago">
+            <p class="form-error">Son 10 dígitos, sin espacios ni +52.</p>
+          </div>
+        </div>
+
+        <div class="keypad-card glass">
+          <h3>¿Cuántos boletos?</h3>
+          <div class="keypad__display">
+            <div class="lcd" id="keypadLcd">
+              <span class="lcd-label">CANTIDAD</span>
+              <span id="qtyDisplay">_</span> <span class="cursor">▮</span>
+            </div>
+          </div>
+
+          <div class="keypad" id="keypad">
+            <button type="button" class="key" data-qty="1">1</button>
+            <button type="button" class="key" data-qty="2">2<sub>ABC</sub></button>
+            <button type="button" class="key" data-qty="3">3<sub>DEF</sub></button>
+            <button type="button" class="key" data-qty="4">4<sub>GHI</sub></button>
+            <button type="button" class="key" data-qty="5">5<sub>JKL</sub></button>
+            <button type="button" class="key" disabled>6<sub>MNO</sub></button>
+            <button type="button" class="key" disabled>7<sub>PQRS</sub></button>
+            <button type="button" class="key" disabled>8<sub>TUV</sub></button>
+            <button type="button" class="key" disabled>9<sub>WXYZ</sub></button>
+          </div>
+
+          <p class="total-line">TOTAL: $<span id="totalDisplay">0</span> MXN</p>
+          <p class="form-hint">Máximo 5 boletos por persona.</p>
+
+          <button type="button" class="btn-marcar" id="btnContinuar">📞 CONTINUAR AL PAGO →</button>
+        </div>
+      </div>
+
+      <!-- ═══ PASO 2: TARJETA DE PAGO + COMPROBANTE ═══ -->
+      <div class="registro wizard-step hidden" id="paso2">
+        <!-- Tarjeta con los datos para transferir (todo copiable) -->
+        <div class="pay-card glass">
+          <div class="pay-card__chip" aria-hidden="true"></div>
+          <h3 class="pay-card__title">TRANSFIERE AQUÍ</h3>
+
+          <!-- TODO: reemplazar [PLACEHOLDERS] con los datos reales de tu cuenta -->
+          <div class="copy-row">
+            <div><span class="copy-row__label">BANCO</span><span class="copy-row__value" id="cpBanco">[BANCO DESTINO]</span></div>
+            <button type="button" class="btn-copy" data-copy="cpBanco">COPIAR</button>
+          </div>
+          <div class="copy-row">
+            <div><span class="copy-row__label">TITULAR / BENEFICIARIO</span><span class="copy-row__value" id="cpTitular">[NOMBRE DEL TITULAR]</span></div>
+            <button type="button" class="btn-copy" data-copy="cpTitular">COPIAR</button>
+          </div>
+          <div class="copy-row">
+            <div><span class="copy-row__label">CLABE DESTINO</span><span class="copy-row__value copy-row__value--mono" id="cpClabe">[000000000000000000]</span></div>
+            <button type="button" class="btn-copy" data-copy="cpClabe">COPIAR</button>
+          </div>
+          <div class="copy-row">
+            <div><span class="copy-row__label">MONTO EXACTO</span><span class="copy-row__value copy-row__value--mono" id="cpMonto">$0 MXN</span></div>
+            <button type="button" class="btn-copy" data-copy="cpMonto">COPIAR</button>
+          </div>
+          <div class="copy-row">
+            <div><span class="copy-row__label">CONCEPTO</span><span class="copy-row__value" id="cpConcepto">BOLETO KAOTIKAZ</span></div>
+            <button type="button" class="btn-copy" data-copy="cpConcepto">COPIAR</button>
+          </div>
+
+          <p class="form-hint" style="margin-top:16px">💡 El monto debe ser EXACTO. Si difiere, tu compra se rechaza.</p>
+        </div>
+
+        <!-- Comprobante + CLABE del cliente -->
+        <div class="form-card glass">
+          <div class="field" data-field="clabe">
+            <label for="inClabe">CLABE desde la que transferiste</label>
+            <input type="text" id="inClabe" name="clabe" inputmode="numeric" maxlength="18" placeholder="18 dígitos exactos">
+            <p class="form-hint">La encuentras en tu app del banco. Con ella cruzamos tu pago.</p>
+            <p class="form-error">La CLABE lleva 18 dígitos, ni uno más ni uno menos.</p>
+          </div>
+
+          <div class="field" data-field="comprobante">
+            <label for="inComprobante">Captura del comprobante</label>
+            <input type="file" id="inComprobante" name="comprobante" accept="image/*">
+            <p class="form-hint">Foto o captura de pantalla, máx. 5 MB.</p>
+            <p class="form-error">Necesitamos tu comprobante (imagen &lt; 5MB).</p>
+          </div>
+
+          <div class="resumen-lcd lcd">
+            <span class="lcd-label">RESUMEN</span>
+            <span id="resumenTexto">— boletos · $— MXN</span>
+          </div>
+
+          <!-- TODO-BACKEND: POST a /api/compras (ver README) -->
+          <button type="submit" class="btn-marcar">📤 ENVIAR COMPROBANTE</button>
+          <button type="button" class="btn-ghost" id="btnVolver">← volver a mis datos</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ═══════════ GALERÍA "ESTRELLAS DEL BARRIO" ═══════════ -->
+  <section class="section reveal" id="galeria">
+    <h2 class="section__title">Estrellas del Barrio</h2>
+    <p class="section__kicker">// looks de paca, tianguis del salado, puro flow de vecindario</p>
+
+    <div class="gallery">
+      <!-- TODO: reemplazar los .polaroid__img por <img> reales en /assets/img/ -->
+      <figure class="polaroid"><div class="polaroid__img ph-1">FOTO<br>EDITORIAL 01</div><figcaption class="polaroid__caption">sayuri ★ el salado</figcaption></figure>
+      <figure class="polaroid"><div class="polaroid__img ph-2">FOTO<br>EDITORIAL 02</div><figcaption class="polaroid__caption">sopholov ★ combi</figcaption></figure>
+      <figure class="polaroid"><div class="polaroid__img ph-3">FOTO<br>LOOK Y2K</div><figcaption class="polaroid__caption">low rise 4ever</figcaption></figure>
+      <figure class="polaroid"><div class="polaroid__img ph-4">FOTO<br>EN VIVO</div><figcaption class="polaroid__caption">tardeada clandestina</figcaption></figure>
+      <figure class="polaroid"><div class="polaroid__img ph-5">FAN<br>PIC</div><figcaption class="polaroid__caption">tu outfit aquí</figcaption></figure>
+      <figure class="polaroid"><div class="polaroid__img ph-6">FOTO<br>BACKSTAGE</div><figcaption class="polaroid__caption">moretón mood</figcaption></figure>
+    </div>
+
+    <p class="hashtag-cta">
+      Sube tu outfit de paca con el hashtag<br>
+      <strong>#EstrellasDelBarrio</strong> y aparece aquí ★
+    </p>
+  </section>
+
+  <!-- ═══════════ PAUTAS DE ESTILO ═══════════ -->
+  <section class="section reveal" id="dresscode">
+    <h2 class="section__title">Código de Vestimenta</h2>
+    <p class="section__kicker">// no es obligatorio, pero si no vienes así ¿a qué vienes?</p>
+
+    <div class="chips">
+      <span class="chip">💜 algo color moretón</span>
+      <span class="chip">👖 low rise sin miedo</span>
+      <span class="chip">🕶 lentes de mosca</span>
+      <span class="chip">🧥 cortavientos de paca</span>
+      <span class="chip">⛓ joyería Y2K</span>
+      <span class="chip">🖤 delineado emo (opcional, siempre)</span>
+      <span class="chip">👟 tenis limpios, eso sí</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ FOOTER ═══════════ -->
+  <footer class="footer">
+    <p>KAOTIKAZ · hecho en la periferia con amor y sin comisiones</p>
+    <div class="footer__socials">
+      <a href="#" title="Instagram">IG</a>
+      <a href="#" title="TikTok">TT</a>
+      <a href="#" title="Spotify">SP</a>
+    </div>
+    <p>contacto@kaotikaz.com · [TELÉFONO]</p>
+    <a class="footer__admin" href="admin.html">★ staff</a>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Staff — kaotikaz.com</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik+Bubbles&family=VT323&family=Press+Start+2P&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="admin-body">
+
+  <div class="vhs-overlay" aria-hidden="true"></div>
+
+  <!-- ═══ LOGIN (carcasa — la autenticación real va en el backend) ═══ -->
+  <div class="login-box glass" id="loginBox">
+    <h1>Panel Staff</h1>
+    <div class="form-card" style="padding:0">
+      <div class="field">
+        <label for="adminUser">Usuario</label>
+        <input type="text" id="adminUser" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="adminPass">Contraseña</label>
+        <input type="text" id="adminPass" style="-webkit-text-security:disc" autocomplete="current-password">
+      </div>
+      <!-- TODO-BACKEND: POST /api/login → cookie de sesión httpOnly.
+           NUNCA validar la contraseña en JS del cliente. -->
+      <button class="btn-marcar" id="btnLogin">ENTRAR</button>
+    </div>
+  </div>
+
+  <!-- ═══ DASHBOARD ═══ -->
+  <div class="admin-dash hidden" id="dashboard">
+    <div class="admin-topbar">
+      <div>
+        <h1 class="section__title">Boletera Staff</h1>
+        <p class="section__kicker">// clic en ATENDER para ver el caso completo</p>
+      </div>
+      <button class="btn-logout" id="btnLogout">cerrar sesión ✕</button>
+    </div>
+
+    <!-- Pestañas -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" id="tabPendientes" role="tab">⏳ PENDIENTES <span class="count" id="countPend">0</span></button>
+      <button class="tab" id="tabConfirmados" role="tab">✔ CONFIRMADOS <span class="count" id="countConf">0</span></button>
+    </div>
+
+    <!-- Vista: Pendientes -->
+    <div class="glass" style="padding:24px; overflow-x:auto" id="vistaPendientes">
+      <table class="admin-table">
+        <thead>
+          <tr><th>Folio</th><th>Nombre</th><th>Cant.</th><th>Monto</th><th>Fecha</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody id="tbodyPendientes"><!-- render desde admin.js --></tbody>
+      </table>
+      <p class="tabla-vacia hidden" id="vacioPend">— no hay pendientes, respira —</p>
+    </div>
+
+    <!-- Vista: Confirmados -->
+    <div class="glass hidden" style="padding:24px; overflow-x:auto" id="vistaConfirmados">
+      <table class="admin-table">
+        <thead>
+          <tr><th>Folio</th><th>Nombre</th><th>Cant.</th><th>Monto</th><th>Validado</th><th>QR enviado</th><th></th></tr>
+        </thead>
+        <tbody id="tbodyConfirmados"><!-- render desde admin.js --></tbody>
+      </table>
+      <p class="tabla-vacia hidden" id="vacioConf">— aún no confirmas ninguno —</p>
+    </div>
+
+    <p class="form-hint" style="margin-top:18px">
+      TODO-BACKEND: estas tablas se llenan desde Google Sheets vía GET /api/compras. Los datos actuales son demo.
+    </p>
+  </div>
+
+  <!-- ═══ MODAL DE CASO ═══ -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal glass" role="dialog" aria-modal="true">
+      <div class="modal__head">
+        <div>
+          <div class="modal__folio" id="mFolio">K-000</div>
+          <span class="badge badge--pend" id="mBadge">PENDIENTE</span>
+        </div>
+        <button class="modal__close" id="mClose">✕</button>
+      </div>
+
+      <!-- Datos del cliente a la mano -->
+      <div class="modal__grid">
+        <div class="datum"><span class="datum__label">NOMBRE</span><span class="datum__value" id="mNombre">—</span></div>
+        <div class="datum"><span class="datum__label">FECHA DE COMPRA</span><span class="datum__value" id="mFecha">—</span></div>
+        <div class="datum"><span class="datum__label">EMAIL</span><span class="datum__value" id="mEmail">—</span></div>
+        <div class="datum"><span class="datum__label">WHATSAPP</span><span class="datum__value" id="mWhats">—</span></div>
+        <div class="datum"><span class="datum__label">CANTIDAD</span><span class="datum__value" id="mCantidad">—</span></div>
+        <div class="datum"><span class="datum__label">MONTO ESPERADO</span><span class="datum__value" id="mMonto">—</span></div>
+        <div class="datum" style="grid-column: 1 / -1">
+          <span class="datum__label">CLABE ORIGEN (clic para copiar)</span>
+          <span class="datum__value copy-row__value--mono" id="mClabe" style="cursor:pointer" title="Copiar">—</span>
+        </div>
+      </div>
+
+      <!-- Contacto directo -->
+      <div class="modal__contact">
+        <a class="btn-contact" id="mMailto" href="#" target="_blank" rel="noopener">✉ ESCRIBIR EMAIL</a>
+        <a class="btn-contact btn-contact--wa hidden" id="mWa" href="#" target="_blank" rel="noopener">📱 WHATSAPP</a>
+      </div>
+
+      <!-- Comprobante -->
+      <div class="comprobante-frame" id="mComprobante">
+        🧾 <a href="#" onclick="alert('TODO-BACKEND: abrir imagen desde Drive'); return false;">Ver comprobante de transferencia</a>
+      </div>
+
+      <!-- Acciones -->
+      <div class="modal__actions" id="mActions">
+        <button class="btn-mini btn-mini--ok" id="mConfirmar">✔ CONFIRMAR Y ENVIAR QR</button>
+        <button class="btn-mini btn-mini--no" id="mRechazar">✘ RECHAZAR</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>

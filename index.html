@@ -7,9 +7,7 @@
   <meta name="description" content="Las Muñecas del Estado en vivo. Boletos directos, sin intermediarios. Reggaetón mexa desde la periferia.">
 
   <!-- Tipografías Y2K: bubble (látex), consola LCD, matriz de puntos -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Rubik+Bubbles&family=VT323&family=Press+Start+2P&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
 
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -244,7 +242,15 @@
             <span id="resumenTexto">— boletos · $— MXN</span>
           </div>
 
-          <!-- TODO-BACKEND: POST a /api/compras (ver README) -->
+          <!-- CAPTCHA (Cloudflare Turnstile) — app.js lo renderiza aquí
+               solo si el servidor tiene TURNSTILE_SITE_KEY configurada -->
+          <div id="turnstileBox" style="margin:12px 0"></div>
+
+          <p class="form-hint">
+            Al enviar aceptas nuestro <a href="aviso-privacidad.html" target="_blank" rel="noopener">aviso de privacidad</a>:
+            usamos tus datos solo para gestionar tu boleto.
+          </p>
+
           <button type="submit" class="btn-marcar">📤 ENVIAR COMPROBANTE</button>
           <button type="button" class="btn-ghost" id="btnVolver">← volver a mis datos</button>
         </div>

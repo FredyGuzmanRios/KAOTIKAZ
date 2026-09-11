@@ -1,10 +1,11 @@
 /* ============================================================
-   KAOTIKAZ — Backend de referencia (Node + Express)
-   Este archivo muestra CÓMO se vuelve seguro el sistema.
-   No es la versión final: es el esqueleto correcto para crecer.
+   KAOTIKAZ — Backend (Node + Express)
+   Integraciones reales: Google Sheets/Drive + Brevo + panel staff.
+   El QR es SIMULADO por ahora (ver lib/qr.js).
 
-   Instalar:  npm i express helmet express-rate-limit multer dotenv
-   Ejecutar:  node server.js   (con un archivo .env, ver .env.example)
+   Instalar:  npm install          (dentro de backend-ejemplo/)
+   Ejecutar:  npm start            (con .env, ver .env.example)
+   Preparar:  npm run init-sheet   (crea encabezados en el Sheet)
    ============================================================ */
 
 require('dotenv').config();
@@ -14,50 +15,81 @@ const rateLimit = require('express-rate-limit');
 const multer    = require('multer');
 const crypto    = require('crypto');
 const path      = require('path');
+const bcrypt    = require('bcryptjs');
+
+const g      = require('./lib/google');
+const brevo  = require('./lib/brevo');
+const { generarQr } = require('./lib/qr');
+const sesion = require('./lib/sesion');
 
 const app = express();
+app.set('trust proxy', 1); // detrás del proxy de Coolify
 
-/* ─────────────────────────────────────────────
-   1. CABECERAS DE SEGURIDAD (helmet)
-   CSP, no-sniff, frame deny, etc. en una línea.
-   ───────────────────────────────────────────── */
+/* ───────────── 1. Seguridad base ───────────── */
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       styleSrc:   ["'self'", 'https://fonts.googleapis.com', "'unsafe-inline'"],
       fontSrc:    ["'self'", 'https://fonts.gstatic.com'],
-      imgSrc:     ["'self'", 'data:'],
-      scriptSrc:  ["'self'"],
+      imgSrc:     ["'self'", 'data:', 'https://api.qrserver.com'],
+      scriptSrc:  ["'self'", 'https://challenges.cloudflare.com'],
+      frameSrc:   ['https://challenges.cloudflare.com'],
+      connectSrc: ["'self'", 'https://challenges.cloudflare.com'],
     },
   },
 }));
 
-/* ─────────────────────────────────────────────
-   2. RATE LIMIT — frena bots y fuerza bruta
-   ───────────────────────────────────────────── */
 const limiterCompras = rateLimit({ windowMs: 10 * 60 * 1000, max: 5,
   message: { error: 'Demasiados intentos, espera 10 minutos.' } });
 const limiterLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 8,
   message: { error: 'Demasiados intentos de login.' } });
 
-/* ─────────────────────────────────────────────
-   3. SUBIDA DE COMPROBANTE — límites duros
-   ───────────────────────────────────────────── */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
+    // Primer filtro barato por MIME declarado; la verificación REAL
+    // por contenido (magic bytes) se hace después con detectarImagen().
     const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
     cb(ok ? null : new Error('Solo imágenes JPG/PNG/WebP'), ok);
   },
 });
 
-/* ─────────────────────────────────────────────
-   4. VALIDACIÓN SERVER-SIDE (la que sí cuenta)
-   El frontend valida por UX; aquí se valida DE VERDAD,
-   porque cualquiera puede mandar un POST sin pasar por tu página.
-   ───────────────────────────────────────────── */
+/** Verifica el TIPO REAL del archivo leyendo sus primeros bytes.
+ *  El MIME que declara el cliente es falsificable; esto no.
+ *  Devuelve el mimetype real o null si no es imagen permitida. */
+function detectarImagen(buf) {
+  if (!buf || buf.length < 12) return null;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+      buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return 'image/png';
+  // WebP: "RIFF" .... "WEBP"
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+/** CAPTCHA Cloudflare Turnstile (gratis). Solo se usa si
+ *  TURNSTILE_SECRET está configurado — ver SETUP.md §9. */
+async function verificarTurnstile(token, ip) {
+  if (!token) return false;
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret: process.env.TURNSTILE_SECRET, response: token, remoteip: ip }),
+    });
+    const json = await res.json();
+    return json.success === true;
+  } catch (e) {
+    console.error('Turnstile no respondió:', e.message);
+    return false; // ante la duda, rechazar
+  }
+}
+
+/* ───────────── 2. Validación server-side ───────────── */
 const RULES = {
   nombre:   v => /^[a-záéíóúüñ\s.]{3,80}$/i.test(v),
   email:    v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) && v.length <= 100,
@@ -66,22 +98,23 @@ const RULES = {
   cantidad: v => Number.isInteger(+v) && +v >= 1 && +v <= 5,
 };
 
-// Los rangos \uXXXX cubren caracteres de control e invisibles unicode
-const CONTROL_CHARS = /[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\ufeff]/g;
+// Caracteres de control e invisibles unicode: 0x00-0x1f, 0x7f,
+// 0x200b-0x200f, 0x2028, 0x2029, 0xfeff.
+// (Construido con códigos para evitar problemas de codificación.)
+const CONTROL_CHARS = new RegExp(
+  '[' + String.fromCharCode(0x00) + '-' + String.fromCharCode(0x1f) +
+  String.fromCharCode(0x7f) +
+  String.fromCharCode(0x200b) + '-' + String.fromCharCode(0x200f) +
+  String.fromCharCode(0x2028) + String.fromCharCode(0x2029) +
+  String.fromCharCode(0xfeff) + ']', 'g');
 
 function sanitizeServer(str = '') {
-  return String(str)
-    .normalize('NFKC')
-    .replace(CONTROL_CHARS, '')
-    .replace(/[<>"'`\\]/g, '')
-    .trim();
+  return String(str).normalize('NFKC').replace(CONTROL_CHARS, '')
+    .replace(/[<>"'`\\]/g, '').trim();
 }
 
-/** Anti fórmula-injection para Google Sheets: si un valor empieza
- *  con = + - @, Sheets lo ejecutaría como fórmula. Se antepone '. */
-function sheetSafe(v) {
-  return /^[=+\-@]/.test(v) ? `'${v}` : v;
-}
+/** Anti fórmula-injection para Sheets (=, +, -, @ al inicio). */
+function sheetSafe(v) { return /^[=+\-@]/.test(v) ? `'${v}` : v; }
 
 function validarCompra(body) {
   const errores = [];
@@ -94,81 +127,213 @@ function validarCompra(body) {
   return { errores, limpio };
 }
 
-/* ─────────────────────────────────────────────
-   5. CIFRADO EN REPOSO — AES-256-GCM con TU key
-   La CLABE del cliente es dato bancario sensible: se guarda
-   CIFRADA en Google Sheets. Solo tu servidor (que tiene la
-   ENCRYPTION_KEY en variables de entorno de Coolify) puede leerla.
-   Si alguien accede al Sheets, ve texto ilegible.
-   ───────────────────────────────────────────── */
-const KEY = Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex'); // 32 bytes en hex
+/* ───────────── 3. Cifrado en reposo (CLABE) ───────────── */
+const KEY = Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex');
 
 function cifrar(texto) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', KEY, iv);
   const enc = Buffer.concat([cipher.update(texto, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  // formato: iv.tag.datos (todo base64) — autocontenido
-  return `${iv.toString('base64')}.${tag.toString('base64')}.${enc.toString('base64')}`;
+  return `${iv.toString('base64')}.${cipher.getAuthTag().toString('base64')}.${enc.toString('base64')}`;
 }
 
 function descifrar(blob) {
-  const [iv, tag, datos] = blob.split('.').map(p => Buffer.from(p, 'base64'));
-  const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(datos), decipher.final()]).toString('utf8');
+  try {
+    const [iv, tag, datos] = blob.split('.').map(p => Buffer.from(p, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(datos), decipher.final()]).toString('utf8');
+  } catch { return '(no descifrable)'; }
 }
 
-/* ─────────────────────────────────────────────
-   6. ENDPOINTS
-   ───────────────────────────────────────────── */
+function ahora() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'America/Mexico_City' }).slice(0, 16);
+}
+
+/* ───────────── 4. Endpoints públicos ───────────── */
 app.use(express.static(path.join(__dirname, '..'))); // sirve index.html, css, js
+
+/** Config pública para el frontend (solo datos NO sensibles). */
+app.get('/api/config', (req, res) => {
+  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
+});
 
 app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (req, res) => {
   try {
-    // Honeypot también server-side
-    if (req.body.website) return res.json({ ok: true, folio: 'K-999' }); // bot: éxito falso
+    if (req.body.website) return res.json({ ok: true, folio: 'K-999' }); // honeypot
 
     const { errores, limpio } = validarCompra(req.body);
-    if (!req.file) errores.push('comprobante');
+
+    // Tipo REAL del archivo por contenido, no por MIME declarado
+    const tipoReal = req.file ? detectarImagen(req.file.buffer) : null;
+    if (!tipoReal) errores.push('comprobante');
     if (errores.length) return res.status(400).json({ error: 'Campos inválidos', campos: errores });
 
-    // El monto lo calcula el SERVIDOR (nunca confiar en el precio del cliente)
-    const PRECIO = 400; // TODO: leer de hoja "Config"
+    // CAPTCHA (Cloudflare Turnstile) — activo solo si hay secret configurado
+    if (process.env.TURNSTILE_SECRET) {
+      const okCaptcha = await verificarTurnstile(req.body['cf-turnstile-response'], req.ip);
+      if (!okCaptcha) return res.status(400).json({ error: 'Verificación anti-bot fallida, recarga la página.' });
+    }
+
+    // Precio: hoja Config (clave "precio") o .env; NUNCA el que mande el cliente
+    const config = await g.leerConfig();
+    const PRECIO = +config.precio || +process.env.PRECIO_BOLETO || 400;
     const monto = +limpio.cantidad * PRECIO;
 
     const folio = 'K-' + String(Date.now()).slice(-6);
-    const clabeCifrada = cifrar(limpio.clabe);
 
-    /* TODO: integraciones reales —
-       1. Subir req.file.buffer a Google Drive (service account)
-       2. Fila en hoja "Compras": [folio, nombre, email, whatsapp,
-          cantidad, monto, clabeCifrada, 'PENDIENTE', linkDrive, fecha]
-       3. Email #1 al cliente (Brevo API) + email #2 al admin */
+    // 1. Comprobante a Drive (con el tipo REAL detectado)
+    const comprobante = await g.subirComprobante(req.file.buffer, tipoReal, folio);
 
-    res.json({ ok: true, folio });
+    // 2. Fila en el Sheet (esto es lo que ve el panel staff)
+    await g.agregarCompra({
+      folio, fecha: ahora(),
+      nombre: limpio.nombre, email: limpio.email, whatsapp: limpio.whatsapp,
+      cantidad: limpio.cantidad, monto,
+      clabeCifrada: cifrar(limpio.clabe),
+      comprobante, estado: 'PENDIENTE',
+      qrEnviado: 'NO', emailRegistro: 'NO', emailConfirmacion: 'NO',
+    });
+
+    // 3. Correos (si Brevo falla, la compra YA quedó registrada)
+    try {
+      await brevo.enviarCorreo({
+        to: limpio.email,
+        ...brevo.plantillaRegistro({ folio, nombre: limpio.nombre, cantidad: limpio.cantidad, monto }),
+      });
+      await g.actualizarCompra(folio, { emailRegistro: 'SI' });
+    } catch (e) { console.error('Email registro falló:', e.message); }
+
+    try {
+      if (process.env.ADMIN_EMAIL) {
+        await brevo.enviarCorreo({
+          to: process.env.ADMIN_EMAIL,
+          ...brevo.plantillaAdmin({ folio, nombre: limpio.nombre, email: limpio.email,
+            whatsapp: limpio.whatsapp, cantidad: limpio.cantidad, monto, comprobante }),
+        });
+      }
+    } catch (e) { console.error('Email admin falló:', e.message); }
+
+    // 4. Notificación WhatsApp SIN API: el cliente te avisa con un tap.
+    //    Link wa.me a TU número con mensaje prellenado (ver SETUP.md §4).
+    const saltoLinea = String.fromCharCode(10);
+    const waLink = process.env.ADMIN_WHATSAPP
+      ? `https://wa.me/${process.env.ADMIN_WHATSAPP}?text=${encodeURIComponent(
+          `🎟 Nuevo registro Kaotikaz${saltoLinea}Folio: ${folio}${saltoLinea}Soy: ${limpio.nombre}${saltoLinea}Boletos: ${limpio.cantidad} ($${monto} MXN)`)}`
+      : null;
+
+    res.json({ ok: true, folio, monto, waLink });
   } catch (err) {
     console.error(err);
-    // Nunca filtrar detalles internos al cliente
     res.status(500).json({ error: 'Error interno, intenta de nuevo.' });
   }
 });
 
-app.post('/api/login', limiterLogin, express.json(), (req, res) => {
-  /* TODO: comparar hash bcrypt de ADMIN_PASSWORD (env) y emitir
-     cookie de sesión httpOnly + secure + sameSite=strict. */
-  res.status(501).json({ error: 'Pendiente de implementar' });
+/* ───────────── 5. Login staff ───────────── */
+app.post('/api/login', limiterLogin, express.json(), async (req, res) => {
+  const { usuario, password } = req.body || {};
+  const okUser = usuario === process.env.ADMIN_USER;
+  const okPass = await bcrypt.compare(String(password || ''), process.env.ADMIN_PASSWORD_HASH || '');
+  if (!okUser || !okPass) return res.status(401).json({ error: 'Credenciales incorrectas' });
+  sesion.setCookie(res, sesion.crearToken(usuario));
+  res.json({ ok: true });
 });
 
-/* TODO: GET /api/compras (solo con sesión) → al leer, usar descifrar()
-   para mostrar la CLABE SOLO al staff autenticado.
-   POST /api/confirmar → QR + email con boleto.
-   POST /api/rechazar  → email con motivo. */
+app.post('/api/logout', (req, res) => { sesion.clearCookie(res); res.json({ ok: true }); });
+
+/* ───────────── 6. Endpoints staff (requieren sesión) ───────────── */
+app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
+  try {
+    const compras = await g.listarCompras();
+    // La CLABE solo se descifra para staff autenticado
+    res.json(compras.map(c => ({
+      folio: c.folio, fecha: c.fecha, nombre: c.nombre, email: c.email,
+      whatsapp: c.whatsapp, cantidad: +c.cantidad || 0, monto: +c.monto || 0,
+      clabe: c.clabeCifrada ? descifrar(c.clabeCifrada) : '',
+      // El panel NUNCA recibe el link directo de Drive: usa el proxy autenticado
+      comprobante: c.comprobante ? `/api/comprobante/${c.folio}` : '',
+      estado: c.estado,
+      validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo leer el registro.' });
+  }
+});
+
+/** Comprobante SIN link público: el servidor lo descarga de Drive con
+ *  la service account y lo sirve SOLO a staff con sesión válida. */
+app.get('/api/comprobante/:folio', sesion.requiereSesion, async (req, res) => {
+  try {
+    const folio = sanitizeServer(req.params.folio);
+    const compras = await g.listarCompras();
+    const compra = compras.find(c => c.folio === folio);
+    if (!compra || !compra.comprobante) return res.status(404).json({ error: 'Sin comprobante' });
+
+    const archivo = await g.descargarComprobante(compra.comprobante);
+    if (!archivo) return res.status(404).json({ error: 'Archivo no disponible' });
+
+    res.setHeader('Content-Type', archivo.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(archivo.buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo cargar el comprobante.' });
+  }
+});
+
+app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, res) => {
+  try {
+    const folio = sanitizeServer(req.body.folio);
+    const compras = await g.listarCompras();
+    const compra = compras.find(c => c.folio === folio);
+    if (!compra) return res.status(404).json({ error: 'Folio no encontrado' });
+    if (compra.estado === 'CONFIRMADO') return res.status(409).json({ error: 'Ya estaba confirmado' });
+
+    const { codigo, qrImgUrl } = generarQr(folio); // QR simulado
+
+    await brevo.enviarCorreo({
+      to: compra.email,
+      ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre,
+        cantidad: compra.cantidad, codigoQr: codigo, qrImgUrl }),
+    });
+
+    await g.actualizarCompra(folio, {
+      estado: 'CONFIRMADO', validado: ahora(),
+      codigoQr: codigo, qrEnviado: 'SI', emailConfirmacion: 'SI',
+    });
+
+    res.json({ ok: true, folio, codigoQr: codigo });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo confirmar.' });
+  }
+});
+
+app.post('/api/rechazar', sesion.requiereSesion, express.json(), async (req, res) => {
+  try {
+    const folio = sanitizeServer(req.body.folio);
+    const motivo = sanitizeServer(req.body.motivo).slice(0, 300);
+    if (!motivo) return res.status(400).json({ error: 'Falta el motivo' });
+
+    const compras = await g.listarCompras();
+    const compra = compras.find(c => c.folio === folio);
+    if (!compra) return res.status(404).json({ error: 'Folio no encontrado' });
+
+    try {
+      await brevo.enviarCorreo({
+        to: compra.email,
+        ...brevo.plantillaRechazo({ folio, nombre: compra.nombre, motivo }),
+      });
+    } catch (e) { console.error('Email rechazo falló:', e.message); }
+
+    await g.actualizarCompra(folio, { estado: 'RECHAZADO', notas: motivo });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo rechazar.' });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Kaotikaz backend en :${PORT}`));
-
-/* ─────────────────────────────────────────────
-   Generar tu ENCRYPTION_KEY (una sola vez, guárdala en Coolify):
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ───────────────────────────────────────────── */

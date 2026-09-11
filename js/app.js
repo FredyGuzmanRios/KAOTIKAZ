@@ -245,11 +245,32 @@ document.querySelectorAll('.btn-copy').forEach(btn => {
 });
 
 /* ============================================================
+   3.5 CAPTCHA (Cloudflare Turnstile) — solo si el server lo activa
+   ============================================================ */
+let turnstileActivo = false;
+
+(async function initTurnstile() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    if (!cfg.turnstileSiteKey) return; // sin keys → sin captcha (dev local)
+
+    turnstileActivo = true;
+    window.onloadTurnstile = () => {
+      window.turnstile.render('#turnstileBox', { sitekey: cfg.turnstileSiteKey, theme: 'dark' });
+    };
+    const s = document.createElement('script');
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstile&render=explicit';
+    s.async = true;
+    document.head.appendChild(s);
+  } catch { /* backend apagado (preview estático): seguir sin captcha */ }
+})();
+
+/* ============================================================
    4. ENVÍO FINAL (paso 2)
    ============================================================ */
 const form = document.getElementById('formCompra');
 
-form.addEventListener('submit', e => {
+form.addEventListener('submit', async e => {
   e.preventDefault();
 
   /* Honeypot: si un bot llenó el campo invisible, fingimos éxito
@@ -263,28 +284,74 @@ form.addEventListener('submit', e => {
   const okComp  = checkField('comprobante', document.getElementById('inComprobante'));
   if (!(okClabe && okComp)) return;
 
-  // Valores YA sanitizados para el envío
+  // Valores YA sanitizados para el envío (el backend re-valida todo)
   const payload = {
     nombre:   cleanField(document.getElementById('inNombre').value, 80),
     email:    cleanField(document.getElementById('inEmail').value, 100),
     whatsapp: cleanField(document.getElementById('inWhats').value, 10),
     clabe:    cleanField(document.getElementById('inClabe').value, 18),
     cantidad,
-    monto: cantidad * PRECIO_BOLETO,
   };
 
-  /* TODO-BACKEND: envío real.
-     const data = new FormData();
-     Object.entries(payload).forEach(([k, v]) => data.append(k, v));
-     data.append('comprobante', document.getElementById('inComprobante').files[0]);
-     const res = await fetch('/api/compras', { method: 'POST', body: data });
-     const { folio } = await res.json();
-     -> mostrar pantalla de éxito con folio.
-     El backend re-valida TODO, cifra la CLABE, guarda en Sheets,
-     sube el comprobante a Drive y dispara los emails vía Brevo. */
+  const btnEnviar = form.querySelector('[type="submit"]');
+  const textoOriginal = btnEnviar ? btnEnviar.textContent : '';
+  if (btnEnviar) { btnEnviar.disabled = true; btnEnviar.textContent = '☎ MARCANDO…'; }
 
-  alert(`☎ LLAMADA RECIBIDA (demo)\n\n${payload.nombre} · ${payload.cantidad} boleto(s) · $${payload.monto} MXN\n\nCon el backend conectado: se registra tu compra, se sube tu\ncomprobante y te llega el correo de confirmación con tu folio.`);
+  try {
+    const data = new FormData();
+    Object.entries(payload).forEach(([k, v]) => data.append(k, v));
+    data.append('comprobante', document.getElementById('inComprobante').files[0]);
+
+    if (turnstileActivo) {
+      const token = window.turnstile ? window.turnstile.getResponse() : '';
+      if (!token) throw new Error('Completa la verificación anti-bot antes de enviar.');
+      data.append('cf-turnstile-response', token);
+    }
+
+    const res = await fetch('/api/compras', { method: 'POST', body: data });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Error al registrar');
+
+    mostrarExito(json); // { folio, monto, waLink }
+  } catch (err) {
+    alert(`✘ ${err.message}\nRevisa tus datos e intenta de nuevo.`);
+    if (turnstileActivo && window.turnstile) window.turnstile.reset(); // token de un solo uso
+  } finally {
+    if (btnEnviar) { btnEnviar.disabled = false; btnEnviar.textContent = textoOriginal; }
+  }
 });
+
+/** Pantalla de éxito: folio + botón para avisarnos por WhatsApp.
+ *  El link wa.me abre TU WhatsApp con el mensaje del registro listo
+ *  para enviar: así llega la "notificación" sin API de pago. */
+function mostrarExito({ folio, monto, waLink }) {
+  const exito = document.createElement('div');
+  exito.className = 'form-card';
+  exito.style.textAlign = 'center';
+
+  const h = document.createElement('h3');
+  h.textContent = `☎ ¡LLAMADA RECIBIDA! Folio ${folio}`;
+  const p = document.createElement('p');
+  p.textContent = `Registramos tu compra por $${monto.toLocaleString('es-MX')} MXN. ` +
+    'Revisa tu correo: te llegó la confirmación de registro. ' +
+    'Cuando validemos tu pago recibirás tu código QR de acceso.';
+  exito.append(h, p);
+
+  if (waLink) {
+    const a = document.createElement('a');
+    a.href = waLink;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.className = 'btn-marcar';
+    a.style.display = 'inline-block';
+    a.style.marginTop = '14px';
+    a.textContent = '📱 AVÍSANOS POR WHATSAPP (1 tap)';
+    exito.append(a);
+  }
+
+  form.replaceWith(exito);
+  exito.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 /* Inputs numéricos: solo dígitos mientras escribes */
 ['inClabe', 'inWhats'].forEach(id => {

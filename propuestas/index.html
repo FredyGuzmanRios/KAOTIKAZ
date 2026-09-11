@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KAOTIKAZ — Propuestas visuales</title>
+<link rel="stylesheet" href="../assets/fonts/fonts.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0507;color:#f9f2f5;font-family:'Space Mono',monospace;padding:60px 22px 90px}
+.wrap{max-width:1000px;margin:0 auto}
+.tag{font-size:11px;letter-spacing:.28em;color:#ff2d76;text-transform:uppercase}
+h1{font-family:'Anton',sans-serif;font-size:clamp(44px,10vw,96px);line-height:.85;
+  text-transform:uppercase;margin:14px 0 10px;letter-spacing:-.02em}
+h1 em{font-family:'Pirata One',serif;font-style:normal;color:#ff2d76;text-transform:none}
+.intro{color:#a8939c;font-size:14px;line-height:1.8;max-width:620px;margin-bottom:44px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+a.card{display:block;text-decoration:none;color:inherit;background:#150a0f;
+  border:1px solid #2b1a21;padding:26px;transition:.18s}
+a.card:hover{border-color:#ff2d76;transform:translateY(-4px)}
+.card__l{font-size:10px;letter-spacing:.24em;color:#ff2d76;text-transform:uppercase}
+.card__t{font-family:'Anton',sans-serif;font-size:32px;text-transform:uppercase;margin:8px 0 12px;line-height:1}
+.card__d{font-size:13px;line-height:1.75;color:#a8939c}
+.card__m{margin-top:18px;font-size:11px;letter-spacing:.16em;color:#ff2d76;text-transform:uppercase}
+.swatch{display:flex;gap:6px;margin-top:16px}
+.swatch i{width:26px;height:26px;display:block}
+.nota{margin-top:50px;border-left:4px solid #ff1e2d;background:#1d0d12;padding:18px 20px;
+  font-size:13px;line-height:1.8;color:#d9c8d0}
+.nota b{color:#ff2d76}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag">Sitio Kaotikaz &middot; boletera</div>
+  <h1>Seis <em>variantes</em></h1>
+  <p class="intro">
+    Las seis comparten el mismo aparato, el mismo flujo de compra (teclado, transferencia con
+    datos copiables, comprobante y folio) y ya llevan el logotipo oficial en vez del texto.
+    A, B y D son la misma maquina con el ticket vivo al lado &mdash; en movil ese ticket aparece
+    hasta que se completa el pago &mdash;; C es solo el aparato. La seccion de fases se cambio por
+    un banner de fase en vivo. Todas suman, arriba, el manifiesto de bienvenida con dos botones
+    (Ver artistas / Comprar boletos) y un carrusel deslizable para las tarjetas de artistas,
+    que ahora es el unico modo de vista (ya no se puede cambiar a cuadricula) y funciona igual
+    en movil, con tarjetas mas angostas para que se note que hay mas para deslizar.
+  </p>
+
+  <div class="cards">
+    <a class="card" href="propuesta-a-xerox.html">
+      <div class="card__l">Direccion A</div>
+      <div class="card__t">La Maquina</div>
+      <p class="card__d">El aparato de C con un ticket vivo al lado que se reimprime en cada tecla.
+        Ticket en papel tenido. Banner de fase en vivo arriba.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#b5a2a6"></i><i style="background:#8f0f1d"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+
+    <a class="card" href="propuesta-b-ticket.html">
+      <div class="card__l">Direccion B</div>
+      <div class="card__t">Ticket Rosa</div>
+      <p class="card__d">Identica a la A. Lo unico que cambia es la paleta del ticket:
+        papel rosa palido con tinta rosa fuerte y el total en magenta.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#fff0f9"></i><i style="background:#ff0081"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+
+    <a class="card" href="propuesta-c-aparato.html">
+      <div class="card__l">Direccion C</div>
+      <div class="card__t">Aparato</div>
+      <p class="card__d">Todo el sitio es un telefono. La compra avanza por estados de llamada
+        (TONO, MARCANDO, EN LINEA, FOLIO) con cronometro. Fondo de muro rayado y logotipo
+        con letras separadas. Nace pensada para movil.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#22101a"></i><i style="background:#f7eef2"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+
+    <a class="card" href="propuesta-d-ficha.html">
+      <div class="card__l">Direccion D</div>
+      <div class="card__t">Banner + Ficha</div>
+      <p class="card__d">Misma maquina que la A, pero el banner solo grita que la fase 01 esta viva
+        y todo el detalle baja a una ficha de condiciones aparte.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#b5a2a6"></i><i style="background:#22101a"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+
+    <a class="card" href="propuesta-a-logo.html">
+      <div class="card__l">Direccion A &middot; logo</div>
+      <div class="card__t">La Maquina &mdash; Logo</div>
+      <p class="card__d">La propuesta A con el logotipo oficial en vez del texto. El SVG va inline
+        y hereda el mismo resplandor rosa y la sombra roja desplazada.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#b5a2a6"></i><i style="background:#f7eef2"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+
+    <a class="card" href="propuesta-c-logo.html">
+      <div class="card__l">Direccion C &middot; logo</div>
+      <div class="card__t">Aparato &mdash; Logo</div>
+      <p class="card__d">La propuesta C con el logotipo oficial. Mismo tratamiento de sombra y glow,
+        escalado para que aguante en movil sin romperse.</p>
+      <div class="swatch"><i style="background:#080306"></i><i style="background:#ff2f7e"></i><i style="background:#22101a"></i><i style="background:#f7eef2"></i></div>
+      <div class="card__m">Ver propuesta &rarr;</div>
+    </a>
+  </div>
+
+  <div class="nota">
+    <b>Datos por confirmar en todas:</b> la fecha (flyer y brief dicen 17 oct, la convocatoria dice 3 oct),
+    el precio de fase 02 (flyer $300 vs brief $350) y los datos bancarios, que estan como placeholders.
+    El numero de tarjeta del brief no va en el sitio: para SPEI basta CLABE, titular y concepto.
+    Se quito el campo donde el comprador escribia su propia CLABE (no hace falta para validar el
+    pago) y la logica de tarifa de estudiante: ese descuento ahora se aplica al momento de la
+    entrada, no en el sitio.
+  </div>
+</div>
+</body>
+</html>

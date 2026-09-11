@@ -1,0 +1,8 @@
+node_modules/
+.env
+backend-ejemplo/.env
+credenciales*.json
+boletera-*.json
+*.log
+.DS_Store
+Thumbs.db

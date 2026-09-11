@@ -1,31 +1,35 @@
 /* ============================================================
-   KAOTIKAZ — Panel Staff (carcasa v2)
-   Pestañas Pendientes/Confirmados + modal de caso.
-   TODO-BACKEND: sustituir DEMO_DATA por GET /api/compras
-   y las acciones por POST /api/confirmar | /api/rechazar.
+   KAOTIKAZ — Panel Staff (conectado al backend)
+   Login real → GET /api/compras (Google Sheets) →
+   POST /api/confirmar | /api/rechazar (Brevo + QR simulado).
    ============================================================ */
 
-/* Datos demo — misma forma que devolverá el backend */
-let compras = [
-  { folio: 'K-001', nombre: 'Juana Demo',  email: 'juana@demo.mx',  whatsapp: '5512345678',
-    cantidad: 2, monto: 800, clabe: '002180012345678901', fecha: '2026-07-02 18:40',
-    estado: 'PENDIENTE', comprobante: '#', validado: '', qrEnviado: false },
-  { folio: 'K-002', nombre: 'Carlos Demo', email: 'carlos@demo.mx', whatsapp: '',
-    cantidad: 1, monto: 400, clabe: '012180098765432109', fecha: '2026-07-02 19:15',
-    estado: 'PENDIENTE', comprobante: '#', validado: '', qrEnviado: false },
-  { folio: 'K-000', nombre: 'Prueba Interna', email: 'staff@kaotikaz.com', whatsapp: '5598765432',
-    cantidad: 1, monto: 400, clabe: '014180011122233345', fecha: '2026-07-01 12:00',
-    estado: 'CONFIRMADO', comprobante: '#', validado: '2026-07-01 13:05', qrEnviado: true },
-];
-
+let compras = [];
 let casoActual = null;
 
-/* ---------- Utilidad: crear celdas SIN innerHTML (anti-XSS:
-   aunque los datos vengan sanitizados, nunca inyectamos HTML) ---------- */
+/* ---------- Utilidad: crear celdas SIN innerHTML (anti-XSS) ---------- */
 function td(text) {
   const el = document.createElement('td');
   el.textContent = text;
   return el;
+}
+
+async function api(url, opciones = {}) {
+  const res = await fetch(url, { credentials: 'same-origin', ...opciones });
+  const json = await res.json().catch(() => ({}));
+  if (res.status === 401) { mostrarLogin(); throw new Error('Sesión expirada, vuelve a entrar.'); }
+  if (!res.ok) throw new Error(json.error || `Error ${res.status}`);
+  return json;
+}
+
+/* ---------- Cargar compras desde el Sheet ---------- */
+async function cargarCompras() {
+  try {
+    compras = await api('/api/compras');
+    render();
+  } catch (err) {
+    alert(`✘ ${err.message}`);
+  }
 }
 
 /* ---------- Render de tablas ---------- */
@@ -112,6 +116,16 @@ function abrirModal(caso) {
   badge.className = esPend ? 'badge badge--pend' : 'badge badge--conf';
   document.getElementById('mActions').classList.toggle('hidden', !esPend);
 
+  // Comprobante real (link de Drive)
+  const linkComp = document.getElementById('mCompLink');
+  if (caso.comprobante && caso.comprobante !== '#') {
+    linkComp.href = caso.comprobante;
+    linkComp.textContent = 'Ver comprobante de transferencia';
+  } else {
+    linkComp.removeAttribute('href');
+    linkComp.textContent = '(sin comprobante)';
+  }
+
   // Contacto directo, con datos precargados
   const asunto = encodeURIComponent(`Tu compra ${caso.folio} — Kaotikaz`);
   const cuerpo = encodeURIComponent(`Hola ${caso.nombre.split(' ')[0]}, te escribimos por tu compra ${caso.folio} (${caso.cantidad} boleto(s), $${caso.monto} MXN).\n\n`);
@@ -149,49 +163,75 @@ document.getElementById('mClabe').addEventListener('click', async e => {
 /* ---------- Acciones ---------- */
 let procesando = false; // candado anti doble clic
 
-document.getElementById('mConfirmar').addEventListener('click', () => {
+document.getElementById('mConfirmar').addEventListener('click', async () => {
   if (!casoActual || procesando) return;
   procesando = true;
+  const folio = casoActual.folio;
 
-  /* TODO-BACKEND: POST /api/confirmar { folio }
-     → el servidor genera QR único, envía email con boleto (Brevo),
-       mueve el registro a hoja "Confirmados" y responde ok. */
-  casoActual.estado = 'CONFIRMADO';
-  casoActual.validado = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  casoActual.qrEnviado = true;
-
-  procesando = false;
-  cerrarModal();
-  render();
-  switchTab(false); // te lleva a Confirmados para que veas el resultado
+  try {
+    /* El servidor genera el QR (simulado), envía el email con el
+       boleto vía Brevo y actualiza el Sheet. */
+    await api('/api/confirmar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folio }),
+    });
+    cerrarModal();
+    await cargarCompras();
+    switchTab(false); // te lleva a Confirmados para que veas el resultado
+  } catch (err) {
+    alert(`✘ ${err.message}`);
+  } finally {
+    procesando = false;
+  }
 });
 
-document.getElementById('mRechazar').addEventListener('click', () => {
+document.getElementById('mRechazar').addEventListener('click', async () => {
   if (!casoActual || procesando) return;
 
   const motivo = prompt(`¿Por qué rechazas ${casoActual.folio}? (se envía al cliente)`);
   if (motivo === null || motivo.trim() === '') return;
 
   procesando = true;
-  /* TODO-BACKEND: POST /api/rechazar { folio, motivo }
-     → email al cliente con el motivo, registro marcado RECHAZADO. */
-  compras = compras.filter(c => c.folio !== casoActual.folio);
-  procesando = false;
-  cerrarModal();
-  render();
+  try {
+    await api('/api/rechazar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folio: casoActual.folio, motivo: motivo.trim() }),
+    });
+    cerrarModal();
+    await cargarCompras();
+  } catch (err) {
+    alert(`✘ ${err.message}`);
+  } finally {
+    procesando = false;
+  }
 });
 
-/* ---------- Login demo ---------- */
-document.getElementById('btnLogin').addEventListener('click', () => {
-  /* TODO-BACKEND: fetch('/api/login', { method:'POST', ... })
-     → cookie de sesión httpOnly + secure. Esto es solo demo visual. */
-  document.getElementById('loginBox').classList.add('hidden');
-  document.getElementById('dashboard').classList.remove('hidden');
-  render();
-});
-
-document.getElementById('btnLogout').addEventListener('click', () => {
-  /* TODO-BACKEND: POST /api/logout */
+/* ---------- Login ---------- */
+function mostrarLogin() {
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('loginBox').classList.remove('hidden');
+}
+
+document.getElementById('btnLogin').addEventListener('click', async () => {
+  const usuario  = document.getElementById('adminUser').value.trim();
+  const password = document.getElementById('adminPass').value;
+  try {
+    await api('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario, password }),
+    });
+    document.getElementById('loginBox').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    await cargarCompras();
+  } catch (err) {
+    alert(`✘ ${err.message}`);
+  }
+});
+
+document.getElementById('btnLogout').addEventListener('click', async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch {}
+  mostrarLogin();
 });

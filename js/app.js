@@ -6,7 +6,7 @@
    Todo lo marcado TODO-BACKEND se conecta después.
    ============================================================ */
 
-const PRECIO_BOLETO = 400; // TODO-BACKEND: leer de hoja "Config"
+let PRECIO_BOLETO = 400; // fallback mientras carga /api/config (ver lib/precio.js en el backend)
 
 /* ============================================================
    0. CAPA DE SEGURIDAD (frontend)
@@ -159,6 +159,21 @@ document.querySelectorAll('#keypad .key:not(:disabled)').forEach(key => {
     totalDisplay.textContent = (cantidad * PRECIO_BOLETO).toLocaleString('es-MX');
   });
 });
+
+/** Precio real: lo decide el backend (lib/precio.js, por fecha).
+ *  Aquí solo se pinta; el monto que de verdad se cobra/registra
+ *  SIEMPRE se calcula en el servidor, nunca se confía en el cliente. */
+(async function cargarPrecio() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    if (cfg.precio) {
+      PRECIO_BOLETO = +cfg.precio;
+      // Si el usuario ya había marcado cantidad con el precio fallback,
+      // refresca el total mostrado con el precio real.
+      if (cantidad > 0) totalDisplay.textContent = (cantidad * PRECIO_BOLETO).toLocaleString('es-MX');
+    }
+  } catch { /* backend apagado (preview estático): se queda el fallback de 400 */ }
+})();
 
 /* ============================================================
    3. WIZARD DE 2 PASOS

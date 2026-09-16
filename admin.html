@@ -22,7 +22,7 @@
       </div>
       <div class="field">
         <label for="adminPass">Contraseña</label>
-        <input type="text" id="adminPass" style="-webkit-text-security:disc" autocomplete="current-password">
+        <input type="password" id="adminPass" autocomplete="current-password">
       </div>
       <!-- TODO-BACKEND: POST /api/login → cookie de sesión httpOnly.
            NUNCA validar la contraseña en JS del cliente. -->
@@ -37,7 +37,10 @@
         <h1 class="section__title">Boletera Staff</h1>
         <p class="section__kicker">// clic en ATENDER para ver el caso completo</p>
       </div>
-      <button class="btn-logout" id="btnLogout">cerrar sesión ✕</button>
+      <div style="display:flex; align-items:center; gap:18px">
+        <a class="btn-contact" href="escaneo.html">📷 ESCANEAR ACCESOS</a>
+        <button class="btn-logout" id="btnLogout">cerrar sesión ✕</button>
+      </div>
     </div>
 
     <!-- Pestañas -->
@@ -61,7 +64,7 @@
     <div class="glass hidden" style="padding:24px; overflow-x:auto" id="vistaConfirmados">
       <table class="admin-table">
         <thead>
-          <tr><th>Folio</th><th>Nombre</th><th>Cant.</th><th>Monto</th><th>Validado</th><th>QR enviado</th><th></th></tr>
+          <tr><th>Folio</th><th>Nombre</th><th>Cant.</th><th>Monto</th><th>Validado</th><th>QR enviado</th><th>Entrada</th><th></th></tr>
         </thead>
         <tbody id="tbodyConfirmados"><!-- render desde admin.js --></tbody>
       </table>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escaneo de acceso — kaotikaz.com</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="admin-body">
+
+  <div class="vhs-overlay" aria-hidden="true"></div>
+
+  <!-- ═══ LOGIN (mismo backend que /admin.html — misma sesión) ═══ -->
+  <div class="login-box glass" id="loginBox">
+    <h1>Escaneo de acceso</h1>
+    <div class="form-card" style="padding:0">
+      <div class="field">
+        <label for="adminUser">Usuario</label>
+        <input type="text" id="adminUser" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="adminPass">Contraseña</label>
+        <input type="password" id="adminPass" autocomplete="current-password">
+      </div>
+      <button class="btn-marcar" id="btnLogin">ENTRAR</button>
+    </div>
+  </div>
+
+  <!-- ═══ ESCÁNER ═══ -->
+  <div class="scan-view hidden" id="scanView">
+    <div class="admin-topbar">
+      <div>
+        <h1 class="section__title">Escaneo de acceso</h1>
+        <p class="section__kicker">// apunta la cámara al QR del correo de confirmación</p>
+      </div>
+      <button class="btn-logout" id="btnLogout">cerrar sesión ✕</button>
+    </div>
+
+    <div class="scan-camera glass">
+      <video id="scanVideo" playsinline muted></video>
+      <canvas id="scanCanvas" hidden></canvas>
+    </div>
+
+    <div class="scan-resultado hidden" id="scanResultado">
+      <div class="scan-resultado__badge" id="scanBadge">—</div>
+      <div class="scan-resultado__body">
+        <p class="scan-resultado__folio" id="scanFolio">—</p>
+        <p id="scanDetalle">—</p>
+      </div>
+      <button class="btn-mini btn-mini--ok" id="btnSeguir">▶ SEGUIR ESCANEANDO</button>
+    </div>
+
+    <p class="form-hint" id="scanAviso" style="margin-top:14px">
+      Da permiso de cámara cuando el navegador lo pida. Usa la cámara trasera del celular.
+    </p>
+  </div>
+
+  <!-- jsQR: decodificador de QR en el navegador, corre 100% local
+       (no manda la imagen a ningún lado). Versión fijada. -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="js/escaneo.js"></script>
+</body>
+</html>

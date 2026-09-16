@@ -70,6 +70,19 @@ function render() {
     const tr = document.createElement('tr');
     tr.append(td(c.folio), td(c.nombre), td(c.cantidad), td('$' + c.monto),
               td(c.validado || '—'), td(c.qrEnviado ? '✔ sí' : '✘ no'));
+
+    const tdEntrada = document.createElement('td');
+    const badgeEntrada = document.createElement('span');
+    if (c.escaneadoEn) {
+      badgeEntrada.className = 'badge badge--entro';
+      badgeEntrada.textContent = '✔ ' + c.escaneadoEn;
+    } else {
+      badgeEntrada.className = 'badge badge--noentro';
+      badgeEntrada.textContent = '— no ha entrado';
+    }
+    tdEntrada.append(badgeEntrada);
+    tr.append(tdEntrada);
+
     const tdBtn = document.createElement('td');
     const btn = document.createElement('button');
     btn.className = 'btn-mini btn-mini--ok';

@@ -1,0 +1,19 @@
+.git/
+node_modules/
+backend-ejemplo/node_modules/
+
+# Secretos: nunca deben entrar al build, aunque el .gitignore ya los excluya de git.
+.env
+backend-ejemplo/.env
+credenciales*.json
+boletera-*.json
+*.pem
+*.key
+
+# No necesarios en la imagen de producción.
+*.md
+propuestas/
+Claude outputs/
+*.log
+.DS_Store
+Thumbs.db

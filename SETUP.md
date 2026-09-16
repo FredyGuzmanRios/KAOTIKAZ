@@ -19,8 +19,14 @@ POST /api/compras  (backend valida TODO de nuevo)
         ▼
 Tú entras a /admin.html → ves PENDIENTES (leídos del Sheet)
         │
-        ├─ CONFIRMAR → genera QR (simulado), Brevo → email con QR, Sheet pasa a CONFIRMADO
+        ├─ CONFIRMAR → genera QR real (PNG propio, sin terceros), Brevo → email con QR, Sheet pasa a CONFIRMADO
         └─ RECHAZAR  → Brevo → email con motivo, Sheet pasa a RECHAZADO
+
+En la puerta: staff entra a /escaneo.html (mismo login) → apunta la
+cámara al QR del correo → POST /api/escanear lo valida contra el
+Sheet y lo marca como usado (columna EscaneadoEn) — si alguien
+intenta re-entrar con una captura de pantalla del mismo boleto, el
+staff ve "YA FUE ESCANEADO" con la hora del primer ingreso.
 ```
 
 El Google Sheet es la única "base de datos". Puedes abrirlo desde cualquier lado y ver en vivo: quién se registró, si se le mandó cada correo (`EmailRegistro`, `EmailConfirmacion`), su código QR (`CodigoQR`) y si ya se le envió (`QREnviado`).
@@ -45,8 +51,24 @@ El Google Sheet es la única "base de datos". Puedes abrirlo desde cualquier lad
 | N | EmailRegistro | SI / NO |
 | O | EmailConfirmacion | SI / NO |
 | P | Notas | motivo de rechazo, etc. |
+| Q | EscaneadoEn | 2026-07-05 21:14 (vacío = todavía no entra) |
 
-La hoja "Config" tiene `precio | 400`: cambia ahí el precio del boleto sin tocar código.
+**El precio ya NO se controla desde la hoja "Config"** (ese mecanismo se
+quitó: `init-sheet` reescribía `Config!A1:B1` a 400 cada vez que se
+corría, así que era fácil resetear el precio sin querer). Ahora el
+precio vigente lo decide `backend-ejemplo/lib/precio.js` por fecha —
+ahí hay una tabla de etapas (ej. `$150` hasta el 30 de septiembre 2026,
+`$250` normal después). Para cambiar precios o fechas, edita esa tabla
+y vuelve a desplegar; no hace falta tocar el Sheet.
+
+Override de emergencia sin redeploy: define `PRECIO_BOLETO` en las
+variables de entorno de Coolify y reinicia la app — ese valor gana
+sobre la tabla mientras esté definido. Normalmente se deja vacío.
+
+**Si tu Sheet ya existía antes de la columna Q:** vuelve a correr
+`npm run init-sheet` una vez (con el `.env` de siempre) — solo reescribe
+la fila de encabezados (A1:Q1), no toca ninguna fila de datos, y así
+agrega el encabezado `EscaneadoEn` que falta en Q1.
 
 ## 2. Google (Sheets + Drive) — ~15 min
 
@@ -123,7 +145,8 @@ Prueba completa: haz un registro con tu propio correo → revisa que llegue el e
 ## 8. Seguridad del panel staff: segunda capa con Basic Auth (Traefik)
 
 Además del login propio (bcrypt + cookie firmada), pon Basic Auth a nivel del
-proxy de Coolify SOLO para `/admin.html`. Aunque alguien encontrara un bug en el
+proxy de Coolify para `/admin.html` **y** `/escaneo.html` (mismo login de
+staff, mismo nivel de sensibilidad). Aunque alguien encontrara un bug en el
 login de la app, tendría que pasar primero el del proxy.
 
 1. Genera el usuario/contraseña en formato htpasswd (los `$` se duplican para Docker):
@@ -139,10 +162,10 @@ login de la app, tendría que pasar primero el del proxy.
    traefik.http.routers.<nombre-router-https>.middlewares=admin-auth
    ```
 
-   Para limitarlo SOLO a `/admin.html` crea un router adicional con regla de path:
+   Para limitarlo a `/admin.html` y `/escaneo.html` crea un router adicional con regla de path:
 
    ```
-   traefik.http.routers.kadmin.rule=Host(`kaotikaz.com`) && Path(`/admin.html`)
+   traefik.http.routers.kadmin.rule=Host(`kaotikaz.com`) && (Path(`/admin.html`) || Path(`/escaneo.html`))
    traefik.http.routers.kadmin.entrypoints=https
    traefik.http.routers.kadmin.tls=true
    traefik.http.routers.kadmin.middlewares=admin-auth
@@ -165,19 +188,54 @@ El honeypot ya frena bots básicos; Turnstile frena los sofisticados. Es gratis 
 
 Comportamiento: si las variables están vacías, el sitio funciona **sin** captcha (modo dev). Con las llaves puestas, el widget aparece en el paso 2 del formulario y el servidor rechaza cualquier compra sin token válido.
 
-## 10. Notas de seguridad ya implementadas
+## 10. QR real y escaneo de acceso en la puerta
+
+- El QR ya NO lo genera un servicio externo: `lib/qr.js` usa la librería
+  `qrcode` (npm) para dibujar el PNG en el propio servidor. Se manda
+  **incrustado** en el correo (`<img>` con data-URI — no todos los
+  clientes de correo lo muestran, Gmail a veces bloquea imágenes
+  data-URI) y **siempre adjunto** como `boleto-<folio>.png`, así el
+  cliente lo puede guardar/imprimir aunque el correo no lo muestre inline.
+- `/escaneo.html` (link "📷 ESCANEAR ACCESOS" desde `/admin.html`) usa la
+  cámara del celular del staff para leer el QR — la decodificación pasa
+  100% en el navegador con la librería `jsQR` (cargada desde jsDelivr,
+  agregado a la Content-Security-Policy del backend); ninguna imagen
+  viaja a un servidor externo.
+- Al escanear, `POST /api/escanear` (requiere sesión de staff) busca el
+  código en el Sheet: si no existe o el boleto no está `CONFIRMADO`,
+  avisa; si ya tiene `EscaneadoEn`, avisa "YA FUE ESCANEADO" con la hora
+  del primer ingreso (para detectar reingresos con captura de pantalla);
+  si es válido y es la primera vez, marca `EscaneadoEn = ahora()` y deja
+  pasar. El QR representa el **folio completo** (no boleto por boleto):
+  si alguien compró 3 boletos, un solo escaneo marca las 3 entradas.
+- Limitación conocida: como el Sheet no es una base transaccional, dos
+  puertas escaneando el mismo código en el mismo instante podrían, en
+  teoría, dejar pasar ambas antes de que la primera escritura se refleje.
+  Para un solo punto de acceso (lo normal en un evento de este tamaño)
+  no es un problema real.
+- **Antes de desplegar:** `cd backend-ejemplo && npm install` (agrega
+  `qrcode` y sube `multer` a 2.x), y probar el flujo completo: confirmar
+  un registro de prueba → revisar que llegue el correo con el QR
+  adjunto → abrir `/escaneo.html` desde un celular y escanear ese QR
+  (contra la URL real desplegada, por HTTPS — la cámara del navegador
+  exige contexto seguro; `http://localhost` también cuenta como seguro
+  para pruebas locales). Esto no se pudo probar de punta a punta en el
+  entorno donde se generó este cambio.
+
+## 11. Notas de seguridad ya implementadas
 
 - Los comprobantes NUNCA se sirven con link público de Drive: el panel staff los ve vía `GET /api/comprobante/:folio`, que exige sesión y descarga el archivo con la service account.
 - El tipo del comprobante se verifica por **contenido real** (magic bytes JPEG/PNG/WebP), no por el MIME que declare el cliente.
 - La CLABE se cifra AES-256-GCM antes de tocar el Sheet y solo se descifra para staff autenticado.
 - Aviso de privacidad (LFPDPPP) en `aviso-privacidad.html`, enlazado en el formulario. Ajusta el correo de contacto y el plazo de retención a tu realidad.
 
-## 11. Estado actual y pendientes
+## 12. Estado actual y pendientes
 
 - ✅ Registro → Sheet + Drive + 2 correos Brevo + aviso WhatsApp (wa.me)
 - ✅ Panel staff con login real (bcrypt + cookie firmada), lee del Sheet
-- ✅ Confirmar → QR **simulado** + correo con QR; Rechazar → correo con motivo
+- ✅ Confirmar → QR **real** (PNG propio, adjunto + incrustado) + correo; Rechazar → correo con motivo
+- ✅ Escaneo de acceso en `/escaneo.html` con cámara + `POST /api/escanear`, marca `EscaneadoEn` para evitar reingresos
 - ✅ Turnstile opcional, magic bytes, comprobantes vía proxy autenticado, aviso de privacidad
-- ⏳ QR real validable en puerta: sustituir `lib/qr.js` por la librería `qrcode` (genera PNG propio y se adjunta al correo) + una vista de escaneo para el staff
-- ⏳ Basic Auth de Traefik en `/admin.html` (§8) — se configura en Coolify, no en el código
+- ⏳ Basic Auth de Traefik en `/admin.html` y `/escaneo.html` (§8) — se configura en Coolify, no en el código. Conviene extender la regla de path del §8 para cubrir también `/escaneo.html`.
 - ⏳ Los correos salen de plantillas en `lib/brevo.js`; personaliza textos ahí
+- ⏳ `npm install` + prueba end-to-end del QR/escaneo pendiente de correr (ver §10)

@@ -10,6 +10,10 @@ RUN cd backend-ejemplo && npm install --omit=dev
 # Copiar el resto del sitio (index.html, css/, js/, admin.html…)
 COPY . .
 
+# No correr el proceso como root dentro del contenedor.
+RUN chown -R node:node /app
+USER node
+
 ENV NODE_ENV=production
 EXPOSE 3000
 

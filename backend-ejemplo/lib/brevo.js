@@ -6,7 +6,20 @@
 
 const API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-async function enviarCorreo({ to, subject, html }) {
+async function enviarCorreo({ to, subject, html, attachment }) {
+  const body = {
+    sender: {
+      name: process.env.BREVO_SENDER_NAME || 'Kaotikaz',
+      email: process.env.BREVO_SENDER_EMAIL,
+    },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  };
+  // Adjuntos opcionales: [{ name, content }] con content en base64
+  // (así viaja el PNG del QR — ver lib/qr.js).
+  if (attachment && attachment.length) body.attachment = attachment;
+
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: {
@@ -14,15 +27,7 @@ async function enviarCorreo({ to, subject, html }) {
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({
-      sender: {
-        name: process.env.BREVO_SENDER_NAME || 'Kaotikaz',
-        email: process.env.BREVO_SENDER_EMAIL,
-      },
-      to: [{ email: to }],
-      subject,
-      htmlContent: html,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detalle = await res.text().catch(() => '');
@@ -83,18 +88,24 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto, compr
   };
 }
 
-/** Email #3 — al cliente: pago confirmado + QR (simulado). */
-function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrImgUrl }) {
+/** Email #3 — al cliente: pago confirmado + QR real (generado por
+ *  nosotros, ver lib/qr.js). El PNG también va adjunto al correo:
+ *  algunos clientes de correo (p. ej. Gmail) bloquean imágenes
+ *  data-URI incrustadas, así que el adjunto es la vía garantizada
+ *  para guardar/imprimir el boleto aunque la imagen inline no se vea. */
+function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrDataUrl }) {
   return {
     subject: `✔ Pago confirmado — tu acceso ${folio}`,
     html: wrap(`
       <p>¡Listo, <b>${nombre}</b>! Tu pago fue confirmado.</p>
-      <p>Este es tu acceso para <b>${cantidad} boleto(s)</b>. Preséntalo en la entrada:</p>
+      <p>Este es tu acceso para <b>${cantidad} boleto(s)</b>. Preséntalo en la entrada
+      (esta imagen o el PNG adjunto a este correo):</p>
       <div style="background:#fff;padding:16px;border-radius:8px;text-align:center">
-        <img src="${qrImgUrl}" alt="QR ${codigoQr}" width="220" height="220"><br>
+        <img src="${qrDataUrl}" alt="QR ${codigoQr}" width="220" height="220"><br>
         <code style="color:#0d0d1a;font-size:13px">${codigoQr}</code>
       </div>
-      <p style="color:#ffe066">⚠ El QR es personal. No lo compartas en redes.</p>`),
+      <p style="color:#ffe066">⚠ El QR es personal e intransferible: la entrada solo
+      se valida la primera vez que se escanea. No lo compartas en redes.</p>`),
   };
 }
 

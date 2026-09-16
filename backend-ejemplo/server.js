@@ -1,7 +1,9 @@
 /* ============================================================
    KAOTIKAZ — Backend (Node + Express)
    Integraciones reales: Google Sheets/Drive + Brevo + panel staff.
-   El QR es SIMULADO por ahora (ver lib/qr.js).
+   QR real (lib/qr.js, librería `qrcode`, sin terceros) + escaneo
+   de acceso en /escaneo.html (POST /api/escanear marca el boleto
+   como usado para evitar reingresos con captura de pantalla).
 
    Instalar:  npm install          (dentro de backend-ejemplo/)
    Ejecutar:  npm start            (con .env, ver .env.example)
@@ -21,6 +23,7 @@ const g      = require('./lib/google');
 const brevo  = require('./lib/brevo');
 const { generarQr } = require('./lib/qr');
 const sesion = require('./lib/sesion');
+const { precioVigente } = require('./lib/precio');
 
 const app = express();
 app.set('trust proxy', 1); // detrás del proxy de Coolify
@@ -32,8 +35,8 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc:   ["'self'", 'https://fonts.googleapis.com', "'unsafe-inline'"],
       fontSrc:    ["'self'", 'https://fonts.gstatic.com'],
-      imgSrc:     ["'self'", 'data:', 'https://api.qrserver.com'],
-      scriptSrc:  ["'self'", 'https://challenges.cloudflare.com'],
+      imgSrc:     ["'self'", 'data:'],
+      scriptSrc:  ["'self'", 'https://challenges.cloudflare.com', 'https://cdn.jsdelivr.net'],
       frameSrc:   ['https://challenges.cloudflare.com'],
       connectSrc: ["'self'", 'https://challenges.cloudflare.com'],
     },
@@ -44,6 +47,8 @@ const limiterCompras = rateLimit({ windowMs: 10 * 60 * 1000, max: 5,
   message: { error: 'Demasiados intentos, espera 10 minutos.' } });
 const limiterLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 8,
   message: { error: 'Demasiados intentos de login.' } });
+const limiterEscaneo = rateLimit({ windowMs: 60 * 1000, max: 40,
+  message: { error: 'Muchos escaneos seguidos, espera un momento.' } });
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -94,8 +99,10 @@ const RULES = {
   nombre:   v => /^[a-záéíóúüñ\s.]{3,80}$/i.test(v),
   email:    v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) && v.length <= 100,
   whatsapp: v => v === '' || /^\d{10}$/.test(v),
-  clabe:    v => /^\d{18}$/.test(v),
   cantidad: v => Number.isInteger(+v) && +v >= 1 && +v <= 5,
+  // Nota: ya no se pide la CLABE del comprador (decisión de diseño de la
+  // nueva landing — para validar el pago basta con el monto exacto y el
+  // concepto). El comprobante de transferencia sigue siendo obligatorio.
 };
 
 // Caracteres de control e invisibles unicode: 0x00-0x1f, 0x7f,
@@ -151,11 +158,30 @@ function ahora() {
 }
 
 /* ───────────── 4. Endpoints públicos ───────────── */
-app.use(express.static(path.join(__dirname, '..'))); // sirve index.html, css, js
+const PUBLIC_DIR = path.join(__dirname, '..');
 
-/** Config pública para el frontend (solo datos NO sensibles). */
+// Solo estas subcarpetas se sirven como estáticos (css, js, fuentes/imágenes).
+// NUNCA servir PUBLIC_DIR completo: expondría server.js, lib/, SETUP.md,
+// Dockerfile y cualquier secreto que quede en la raíz del repo (p. ej. el
+// JSON de la cuenta de servicio de Google si algún día se copia ahí).
+app.use('/css', express.static(path.join(PUBLIC_DIR, 'css')));
+app.use('/js', express.static(path.join(PUBLIC_DIR, 'js')));
+app.use('/assets', express.static(path.join(PUBLIC_DIR, 'assets')));
+
+// Páginas HTML públicas, una por una (mismas URLs que antes).
+app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
+app.get('/admin.html', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'admin.html')));
+app.get('/aviso-privacidad.html', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'aviso-privacidad.html')));
+app.get('/escaneo.html', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'escaneo.html')));
+
+/** Config pública para el frontend (solo datos NO sensibles).
+ *  precio: la landing lo usa para mostrar el total correcto (ver
+ *  lib/precio.js — lógica interna por fecha, ya no depende del Sheet). */
 app.get('/api/config', (req, res) => {
-  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
+  res.json({
+    turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null,
+    precio: precioVigente(),
+  });
 });
 
 app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (req, res) => {
@@ -175,9 +201,8 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
       if (!okCaptcha) return res.status(400).json({ error: 'Verificación anti-bot fallida, recarga la página.' });
     }
 
-    // Precio: hoja Config (clave "precio") o .env; NUNCA el que mande el cliente
-    const config = await g.leerConfig();
-    const PRECIO = +config.precio || +process.env.PRECIO_BOLETO || 400;
+    // Precio: lógica interna por fecha (lib/precio.js); NUNCA el que mande el cliente
+    const PRECIO = precioVigente();
     const monto = +limpio.cantidad * PRECIO;
 
     const folio = 'K-' + String(Date.now()).slice(-6);
@@ -190,7 +215,8 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
       folio, fecha: ahora(),
       nombre: limpio.nombre, email: limpio.email, whatsapp: limpio.whatsapp,
       cantidad: limpio.cantidad, monto,
-      clabeCifrada: cifrar(limpio.clabe),
+      // clabeCifrada: ya no se recolecta (ver nota en RULES arriba);
+      // la columna se queda vacía para compras nuevas.
       comprobante, estado: 'PENDIENTE',
       qrEnviado: 'NO', emailRegistro: 'NO', emailConfirmacion: 'NO',
     });
@@ -235,7 +261,7 @@ app.post('/api/login', limiterLogin, express.json(), async (req, res) => {
   const okUser = usuario === process.env.ADMIN_USER;
   const okPass = await bcrypt.compare(String(password || ''), process.env.ADMIN_PASSWORD_HASH || '');
   if (!okUser || !okPass) return res.status(401).json({ error: 'Credenciales incorrectas' });
-  sesion.setCookie(res, sesion.crearToken(usuario));
+  sesion.setCookie(res, sesion.crearToken(usuario), req);
   res.json({ ok: true });
 });
 
@@ -254,6 +280,7 @@ app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
       comprobante: c.comprobante ? `/api/comprobante/${c.folio}` : '',
       estado: c.estado,
       validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
+      escaneadoEn: c.escaneadoEn || '',
     })));
   } catch (err) {
     console.error(err);
@@ -290,12 +317,20 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
     if (!compra) return res.status(404).json({ error: 'Folio no encontrado' });
     if (compra.estado === 'CONFIRMADO') return res.status(409).json({ error: 'Ya estaba confirmado' });
 
-    const { codigo, qrImgUrl } = generarQr(folio); // QR simulado
+    // QR real: lo generamos nosotros (lib/qr.js, librería `qrcode`),
+    // sin depender de ningún servicio externo.
+    const { codigo, pngBuffer } = await generarQr(folio);
+    const qrDataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
 
     await brevo.enviarCorreo({
       to: compra.email,
       ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre,
-        cantidad: compra.cantidad, codigoQr: codigo, qrImgUrl }),
+        cantidad: compra.cantidad, codigoQr: codigo, qrDataUrl }),
+      // Brevo no soporta imágenes inline (cid) en su API, así que además
+      // del <img> con data-URI (best-effort según el cliente de correo)
+      // el PNG va adjunto como archivo — el cliente siempre puede
+      // guardarlo/imprimirlo aunque el correo no muestre la imagen inline.
+      attachment: [{ name: `boleto-${folio}.png`, content: pngBuffer.toString('base64') }],
     });
 
     await g.actualizarCompra(folio, {
@@ -307,6 +342,42 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'No se pudo confirmar.' });
+  }
+});
+
+/** Escaneo de acceso en la puerta: valida el código del QR y lo marca
+ *  como usado (una sola vez) para evitar reingresos con captura de
+ *  pantalla del mismo boleto. Requiere sesión de staff. */
+app.post('/api/escanear', sesion.requiereSesion, limiterEscaneo, express.json(), async (req, res) => {
+  try {
+    const codigoQr = sanitizeServer(req.body.codigoQr).slice(0, 100);
+    if (!codigoQr) return res.status(400).json({ error: 'Código vacío', resultado: 'ERROR' });
+
+    const compras = await g.listarCompras();
+    const compra = compras.find(c => c.codigoQr === codigoQr);
+
+    if (!compra) {
+      return res.status(404).json({ error: 'Código no reconocido', resultado: 'NO_ENCONTRADO' });
+    }
+    if (compra.estado !== 'CONFIRMADO') {
+      return res.status(409).json({ error: 'Este boleto no está confirmado', resultado: 'NO_CONFIRMADO',
+        folio: compra.folio, nombre: compra.nombre });
+    }
+    if (compra.escaneadoEn) {
+      // Ya se usó: NO se vuelve a marcar. Se informa la fecha/hora del
+      // primer ingreso para que el staff decida (posible reingreso o
+      // captura de pantalla compartida).
+      return res.status(409).json({ error: 'Este boleto YA FUE ESCANEADO', resultado: 'YA_USADO',
+        folio: compra.folio, nombre: compra.nombre, cantidad: +compra.cantidad || 0,
+        escaneadoEn: compra.escaneadoEn });
+    }
+
+    await g.actualizarCompra(compra.folio, { escaneadoEn: ahora() });
+    res.json({ ok: true, resultado: 'OK', folio: compra.folio, nombre: compra.nombre,
+      cantidad: +compra.cantidad || 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo validar el escaneo.', resultado: 'ERROR' });
   }
 });
 

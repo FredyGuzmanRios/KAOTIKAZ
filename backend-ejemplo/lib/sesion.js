@@ -28,8 +28,12 @@ function validarToken(token = '') {
   return usuario;
 }
 
-function setCookie(res, token) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+function setCookie(res, token, req) {
+  // Secure si NODE_ENV=production (config explícita) O si la request ya
+  // llegó por HTTPS (req.secure respeta X-Forwarded-Proto gracias a
+  // "trust proxy"). Así un NODE_ENV mal configurado en el host no baja
+  // la guardia de la cookie de sesión del staff.
+  const secure = (process.env.NODE_ENV === 'production' || (req && req.secure)) ? '; Secure' : '';
   res.setHeader('Set-Cookie',
     `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TTL_MS / 1000}${secure}`);
 }

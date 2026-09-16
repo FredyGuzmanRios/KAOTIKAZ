@@ -7,20 +7,20 @@
    A Folio | B Fecha | C Nombre | D Email | E WhatsApp | F Cantidad
    G Monto | H ClabeCifrada | I ComprobanteURL | J Estado
    K FechaValidado | L CodigoQR | M QREnviado | N EmailRegistro
-   O EmailConfirmacion | P Notas
+   O EmailConfirmacion | P Notas | Q EscaneadoEn
    ============================================================ */
 
 const { google } = require('googleapis');
 const { Readable } = require('stream');
 
 const HOJA = 'Compras';
-const RANGO = `${HOJA}!A:P`;
+const RANGO = `${HOJA}!A:Q`;
 
 const COLS = [
   'folio', 'fecha', 'nombre', 'email', 'whatsapp', 'cantidad',
   'monto', 'clabeCifrada', 'comprobante', 'estado',
   'validado', 'codigoQr', 'qrEnviado', 'emailRegistro',
-  'emailConfirmacion', 'notas',
+  'emailConfirmacion', 'notas', 'escaneadoEn',
 ];
 
 let _auth = null;
@@ -80,7 +80,7 @@ async function actualizarCompra(folio, cambios) {
   const fila = COLS.map(k => actualizado[k] ?? '');
   await sheetsApi().spreadsheets.values.update({
     spreadsheetId: process.env.SHEETS_ID,
-    range: `${HOJA}!A${compra._row}:P${compra._row}`,
+    range: `${HOJA}!A${compra._row}:Q${compra._row}`,
     valueInputOption: 'RAW',
     requestBody: { values: [fila] },
   });

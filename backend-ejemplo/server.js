@@ -256,10 +256,43 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
 });
 
 /* ───────────── 5. Login staff ───────────── */
+
+/** Un hash de bcrypt siempre tiene esta forma: $2a$/$2b$/$2y$ + costo de
+ *  2 digitos + $ + 53 caracteres de sal+hash. Algunas plataformas de
+ *  hosting (Coolify incluida, si no se marca "Is Literal") interpretan el
+ *  signo $ dentro de una variable de entorno como el inicio de una
+ *  referencia a otra variable (estilo ${OTRA_VAR}) y lo corrompen al
+ *  guardarlo o inyectarlo al contenedor. Para blindarnos de eso: si el
+ *  valor de ADMIN_PASSWORD_HASH no tiene pinta de hash bcrypt, probamos a
+ *  decodificarlo como base64 (que no usa $ y por lo tanto no se corrompe)
+ *  antes de darlo por invalido. */
+const RE_BCRYPT = /^\$2[aby]\$\d{2}\$.{53}$/;
+function hashAdminVigente() {
+  const raw = (process.env.ADMIN_PASSWORD_HASH || '').trim();
+  if (RE_BCRYPT.test(raw)) return raw;
+  try {
+    const decodificado = Buffer.from(raw, 'base64').toString('utf8').trim();
+    if (RE_BCRYPT.test(decodificado)) return decodificado;
+  } catch { /* no era base64 valido, seguimos con el valor crudo */ }
+  return raw;
+}
+
+// Diagnostico al arrancar: nunca imprime el hash ni la contraseña, solo si
+// el formato final es el esperado -- para poder revisar en los logs de
+// Coolify sin exponer secretos si el login sigue fallando.
+{
+  const hashFinal = hashAdminVigente();
+  const usuarioCargado = process.env.ADMIN_USER || '';
+  console.log('[login] ADMIN_USER cargado:', JSON.stringify(usuarioCargado),
+    `(${usuarioCargado.length} caracteres)`);
+  console.log('[login] ADMIN_PASSWORD_HASH tiene formato bcrypt valido:',
+    RE_BCRYPT.test(hashFinal) ? 'SI' : 'NO -- revisar la variable en Coolify (ver comentario arriba)');
+}
+
 app.post('/api/login', limiterLogin, express.json(), async (req, res) => {
   const { usuario, password } = req.body || {};
-  const okUser = usuario === process.env.ADMIN_USER;
-  const okPass = await bcrypt.compare(String(password || ''), process.env.ADMIN_PASSWORD_HASH || '');
+  const okUser = String(usuario || '').trim() === (process.env.ADMIN_USER || '').trim();
+  const okPass = await bcrypt.compare(String(password || ''), hashAdminVigente());
   if (!okUser || !okPass) return res.status(401).json({ error: 'Credenciales incorrectas' });
   sesion.setCookie(res, sesion.crearToken(usuario), req);
   res.json({ ok: true });

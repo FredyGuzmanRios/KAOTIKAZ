@@ -14,10 +14,14 @@ function td(text) {
   return el;
 }
 
-async function api(url, opciones = {}) {
+async function api(url, opciones = {}, esLogin = false) {
   const res = await fetch(url, { credentials: 'same-origin', ...opciones });
   const json = await res.json().catch(() => ({}));
-  if (res.status === 401) { mostrarLogin(); throw new Error('Sesión expirada, vuelve a entrar.'); }
+  // /api/login tambien responde 401 cuando el usuario/contraseña esta mal
+  // (no porque haya una sesion que haya expirado) -- para esa llamada no
+  // se debe mostrar el mensaje generico de "sesion expirada", sino el
+  // error real que manda el servidor (p.ej. "Credenciales incorrectas").
+  if (res.status === 401 && !esLogin) { mostrarLogin(); throw new Error('Sesión expirada, vuelve a entrar.'); }
   if (!res.ok) throw new Error(json.error || `Error ${res.status}`);
   return json;
 }
@@ -235,7 +239,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ usuario, password }),
-    });
+    }, true);
     document.getElementById('loginBox').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
     await cargarCompras();

@@ -48,6 +48,18 @@ async function enviarCorreo({ to, subject, html, attachment }) {
 const LOGO_URL = 'https://kaotikaz.com/assets/img/kaotikaz-logo-correo.png';
 const ROSA = '#ff2fb3'; // mismo rosa de marca que el resto del sitio ("rosita")
 
+// Cada QR de boleto se referencia por URL propia (GET /api/qr/:codigo.png
+// en server.js, mismo tratamiento que LOGO_URL) en vez de un data-URI
+// incrustado. Se probó primero con data-URI y NO se veía en Gmail — Gmail
+// (y otros clientes) bloquean imágenes base64 incrustadas en <img src>
+// por default, y Brevo confirmó que su API de correo transaccional no
+// soporta imágenes inline por Content-ID (cid) ni por API ni por SMTP
+// (ver community.brevo.com, hilo "Does Transactional email support
+// embedded image?"). Una URL normal, servida por nuestro propio backend,
+// es la única forma real de que el QR se vea SIN tener que abrir el
+// adjunto.
+const QR_BASE_URL = 'https://kaotikaz.com/api/qr';
+
 const wrap = (contenido) => `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;
               background:#0d0d1a;color:#f2f2f2;padding:28px;border-radius:12px">
@@ -110,13 +122,14 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto }) {
  *  depender de un único QR compartido para todo el grupo.
  *
  *  `boletos` (obligatorio): arreglo ya armado en server.js, en el mismo
- *  orden que se guardó en el Sheet: [{ nombreBoleto, codigo, qrDataUrl }, ...],
+ *  orden que se guardó en el Sheet: [{ nombreBoleto, codigo }, ...],
  *  boleto[0] siempre es quien compró.
  *
- *  El PNG de cada boleto también va adjunto al correo (uno por persona):
- *  algunos clientes de correo (p. ej. Gmail) bloquean imágenes data-URI
- *  incrustadas, así que el adjunto es la vía garantizada para
- *  guardar/imprimir cada boleto aunque la imagen inline no se vea. */
+ *  Cada imagen se referencia por su propia URL (QR_BASE_URL, ver arriba)
+ *  en vez de un data-URI incrustado — así SÍ se ve dentro del correo en
+ *  Gmail y demás clientes. El PNG de cada boleto TAMBIÉN va adjunto al
+ *  correo (uno por persona), para poder guardarlo/imprimirlo sin conexión
+ *  aunque la imagen inline tarde en cargar. */
 function plantillaConfirmacion({ folio, nombre, cantidad, boletos }) {
   const esGrupo = boletos.length > 1; // 2+ boletos: cada uno necesita su etiqueta para saber cuál es cuál
   const bloques = boletos.map((b, i) => `
@@ -125,7 +138,7 @@ function plantillaConfirmacion({ folio, nombre, cantidad, boletos }) {
       ${esGrupo ? `<p style="color:${ROSA};margin:0 0 8px;font-size:13px;text-align:left">
         <b>Boleto ${i + 1} de ${boletos.length} — ${b.nombreBoleto}</b></p>` : ''}
       <div style="background:#fff;padding:16px;border-radius:8px;text-align:center">
-        <img src="${b.qrDataUrl}" alt="QR boleto ${i + 1} — ${b.nombreBoleto}" width="200" height="200"><br>
+        <img src="${QR_BASE_URL}/${b.codigo}.png" alt="QR boleto ${i + 1} — ${b.nombreBoleto}" width="200" height="200"><br>
         <code style="color:${ROSA};font-size:12px">${b.codigo}</code>
       </div>
     </div>`).join('');

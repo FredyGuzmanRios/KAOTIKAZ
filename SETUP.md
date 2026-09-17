@@ -204,6 +204,25 @@ Comportamiento: si las variables están vacías, el sitio funciona **sin** captc
   `generarQrsPorPersona`, `lib/brevo.js` → `plantillaConfirmacion`). Cada
   QR también va **adjunto** al correo como `boleto-<folio>-<N>.png`, así
   cada quien puede guardar/imprimir solo el suyo.
+- **La imagen del QR dentro del correo se referencia por su propia URL,
+  NO como data-URI incrustado.** Se probó primero con data-URI
+  (`<img src="data:image/png;base64,...">`) y no se veía en Gmail — Gmail
+  bloquea por default un `<img>` con imagen base64 incrustada, y Brevo
+  confirmó que su API de correo transaccional no soporta imágenes inline
+  por Content-ID (cid), ni por API ni por SMTP. La solución: un endpoint
+  público nuevo, `GET /api/qr/:codigo.png`, que vuelve a dibujar (nunca
+  genera uno nuevo) el PNG de un código ya existente — mismo tratamiento
+  que ya se usaba para el logo (`LOGO_URL` en `lib/brevo.js`). No exige
+  sesión (los clientes de correo cargan imágenes sin cookies) ni consulta
+  el Sheet: como el código ya viaja en texto plano en el mismo correo
+  (impreso en rosa debajo de cada QR), regenerar su imagen no expone nada
+  nuevo. Sí valida el FORMATO del código (regex `KTZ-...`) para no
+  convertirse en "conviérteme cualquier texto en QR gratis", y tiene su
+  propio límite de peticiones por minuto. La imagen se sirve con
+  `Cache-Control` de un año (el PNG de un código dado nunca cambia).
+  Verificado con `jsQR` que el PNG servido por esta URL decodifica
+  exactamente al mismo texto del código, y que es byte-idéntico al PNG
+  que se manda adjunto.
 - `/escaneo.html` (link "📷 ESCANEAR ACCESOS" desde `/admin.html`) usa la
   cámara del celular del staff para leer el QR — la decodificación pasa
   100% en el navegador con la librería `jsQR` (cargada desde jsDelivr,
@@ -238,18 +257,21 @@ Comportamiento: si las variables están vacías, el sitio funciona **sin** captc
   varios accesos independientes porque nunca se guardó así.
 - **Antes de desplegar:** `cd backend-ejemplo && npm install` (agrega
   `qrcode` y sube `multer` a 2.x), y probar el flujo completo: confirmar
-  un registro de prueba de 2+ boletos con nombre → revisar que lleguen
-  los QR separados por persona en el correo → abrir `/escaneo.html` desde
-  un celular y escanear cada QR por separado, confirmando que uno no
-  bloquea al otro (contra la URL real desplegada, por HTTPS — la cámara
-  del navegador exige contexto seguro; `http://localhost` también cuenta
-  como seguro para pruebas locales). Verificado en este entorno con el
+  un registro de prueba de 2+ boletos con nombre → revisar en un correo
+  REAL (no solo en las pruebas) que los QR SÍ se vean dentro del cuerpo
+  del correo (no solo como adjunto) → abrir `/escaneo.html` desde un
+  celular y escanear cada QR por separado, confirmando que uno no bloquea
+  al otro (contra la URL real desplegada, por HTTPS — la cámara del
+  navegador exige contexto seguro; `http://localhost` también cuenta como
+  seguro para pruebas locales). Verificado en este entorno con el
   servidor real corriendo contra dobles en memoria de Sheets/Brevo
-  (Playwright, sin cámara real todavía — ver la nota del punto anterior).
+  (Playwright + una decodificación real con `jsQR` del PNG servido por
+  `GET /api/qr/:codigo.png`), pero sin un correo real en Gmail todavía —
+  eso solo se puede confirmar después del deploy.
 
 ## 11. Notas de seguridad ya implementadas
 
-- Los comprobantes NUNCA se sirven con link público de Drive: el panel staff los ve vía `GET /api/comprobante/:folio`, que exige sesión y descarga el archivo con la service account.
+- Los comprobantes ya NO se suben a Google Drive (ver §1 y la nota grande en `server.js` sobre `storageQuotaExceeded`): viajan como archivo adjunto en el correo de "Nuevo registro..." al `ADMIN_EMAIL`, nunca con un link público. (El viejo endpoint `GET /api/comprobante/:folio` que los servía desde Drive ya no existe.)
 - El tipo del comprobante se verifica por **contenido real** (magic bytes JPEG/PNG/WebP), no por el MIME que declare el cliente.
 - La CLABE se cifra AES-256-GCM antes de tocar el Sheet y solo se descifra para staff autenticado.
 - Aviso de privacidad (LFPDPPP) en `aviso-privacidad.html`, enlazado en el formulario. Ajusta el correo de contacto y el plazo de retención a tu realidad.

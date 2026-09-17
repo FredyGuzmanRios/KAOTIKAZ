@@ -47,4 +47,16 @@ async function generarQrsPorPersona(folio, cantidad) {
   return resultado;
 }
 
-module.exports = { generarQr, generarQrsPorPersona };
+/** Vuelve a dibujar el PNG de un código YA EXISTENTE (no genera ninguno
+ *  nuevo, no le cambia el texto). La usa GET /api/qr/:codigo.png en
+ *  server.js para poder mostrar el QR como una <img src> de una URL
+ *  propia dentro del correo de confirmación — ver la nota grande sobre
+ *  esto en lib/brevo.js (plantillaConfirmacion). QRCode.toBuffer es
+ *  determinístico para el mismo texto + las mismas OPCIONES_PNG, así que
+ *  esto siempre entrega exactamente el mismo PNG que se mandó adjunto al
+ *  confirmar la compra. */
+async function renderQrPng(codigo) {
+  return QRCode.toBuffer(codigo, OPCIONES_PNG);
+}
+
+module.exports = { generarQr, generarQrsPorPersona, renderQrPng };

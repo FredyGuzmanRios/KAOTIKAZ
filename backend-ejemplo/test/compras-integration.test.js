@@ -230,6 +230,13 @@ test('POST /api/confirmar pasa el registro a CONFIRMADO y genera un QR real por 
   assert.match(correo.html, /Boleto 2 de 2 — Invitado 2/);
   assert.match(correo.html, new RegExp(codigosFolio1[0]));
   assert.match(correo.html, new RegExp(codigosFolio1[1]));
+  // El QR se referencia por URL propia (GET /api/qr/:codigo.png), NO como
+  // data-URI incrustado -- un data-URI no se veía en Gmail (ver la nota
+  // grande en lib/brevo.js). Si algún día alguien reintroduce el
+  // data-URI, esta prueba lo agarra.
+  assert.match(correo.html, new RegExp(`src="https://kaotikaz.com/api/qr/${codigosFolio1[0]}.png"`));
+  assert.match(correo.html, new RegExp(`src="https://kaotikaz.com/api/qr/${codigosFolio1[1]}.png"`));
+  assert.doesNotMatch(correo.html, /data:image\/png;base64/);
 });
 
 test('POST /api/confirmar sobre un folio ya confirmado responde 409 (no lo procesa dos veces)', async () => {
@@ -239,6 +246,30 @@ test('POST /api/confirmar sobre un folio ya confirmado responde 409 (no lo proce
     body: JSON.stringify({ folio: folio1 }),
   });
   assert.equal(res.status, 409);
+});
+
+/* ---------- 4.5. GET /api/qr/:codigo.png — la imagen que carga el
+   correo de confirmación (URL pública, sin sesión, para que la puedan
+   cargar los propios clientes de correo). ---------- */
+
+test('GET /api/qr/:codigo.png con un código real (recién confirmado) responde un PNG válido', async () => {
+  const res = await fetch(`${base}/api/qr/${codigosFolio1[0]}.png`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  const buf = Buffer.from(await res.arrayBuffer());
+  // Firma real de PNG (magic bytes) -- confirma que sí es una imagen, no
+  // solo que el endpoint respondió 200 con basura.
+  assert.deepEqual(buf.subarray(0, 8), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+});
+
+test('GET /api/qr/:codigo.png no requiere sesión (lo cargan clientes de correo sin cookie)', async () => {
+  const res = await fetch(`${base}/api/qr/${codigosFolio1[0]}.png`); // sin Cookie
+  assert.equal(res.status, 200);
+});
+
+test('GET /api/qr/:codigo.png con un código de formato inválido responde 400 (no es un generador de QR abierto)', async () => {
+  const res = await fetch(`${base}/api/qr/${encodeURIComponent('cualquier texto <script>')}.png`);
+  assert.equal(res.status, 400);
 });
 
 /* ---------- 5. Rechazar: PENDIENTE -> RECHAZADO ---------- */
@@ -361,7 +392,7 @@ test('una compra con nombresExtra guarda el nombre de cada boleto, y el correo d
   assert.match(correo.html, /Boleto 1 de 3 — Carla Gómez/);
   assert.match(correo.html, /Boleto 2 de 3 — Luis Torres/);
   assert.match(correo.html, /Boleto 3 de 3 — Marta Díaz/);
-  codigos.forEach((c) => assert.match(correo.html, new RegExp(c)));
+  codigos.forEach((c) => assert.match(correo.html, new RegExp(`src="https://kaotikaz.com/api/qr/${c}.png"`)));
 
   // Cada código escanea de forma independiente: el de Luis no depende del de Carla.
   const resEscLuis = await fetch(`${base}/api/escanear`, {

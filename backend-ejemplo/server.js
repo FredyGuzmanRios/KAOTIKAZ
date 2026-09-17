@@ -21,7 +21,7 @@ const bcrypt    = require('bcryptjs');
 
 const g      = require('./lib/google');
 const brevo  = require('./lib/brevo');
-const { generarQrsPorPersona } = require('./lib/qr');
+const { generarQrsPorPersona, renderQrPng } = require('./lib/qr');
 const sesion = require('./lib/sesion');
 const { precioVigente } = require('./lib/precio');
 const { validarCompra, detectarImagen, sanitizeServer, validarNombresExtra } = require('./lib/validacion');
@@ -57,6 +57,12 @@ const limiterLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: ES_TEST ? 1000 :
   message: { error: 'Demasiados intentos de login.' } });
 const limiterEscaneo = rateLimit({ windowMs: 60 * 1000, max: ES_TEST ? 1000 : 40,
   message: { error: 'Muchos escaneos seguidos, espera un momento.' } });
+// GET /api/qr/:codigo.png es pública (la cargan los propios clientes de
+// correo, sin sesión) — un tope generoso por minuto alcanza de sobra para
+// que se vea en el correo y evita que alguien la use para martillar CPU
+// generando imágenes en bucle.
+const limiterQr = rateLimit({ windowMs: 60 * 1000, max: ES_TEST ? 1000 : 120,
+  message: { error: 'Demasiadas solicitudes.' } });
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -174,6 +180,46 @@ app.get('/api/config', (req, res) => {
     turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null,
     precio: precioVigente(),
   });
+});
+
+// Formato de un código de boleto real: KTZ-<folio>-<indice>-<random hex>
+// (ver nuevoCodigo() en lib/qr.js). Solo se usa para no convertir el
+// endpoint de abajo en "conviérteme cualquier texto en QR gratis" — no
+// hace falta más validación porque no expone nada que no esté YA visible
+// en claro en el propio correo (ver el comentario grande de abajo).
+const RE_CODIGO_QR = /^KTZ-[A-Za-z0-9-]{3,80}$/;
+
+/** Imagen del QR de un boleto, en una URL pública y estable — la usa el
+ *  <img src> del correo de confirmación (ver plantillaConfirmacion en
+ *  lib/brevo.js). Brevo no soporta imágenes inline por Content-ID (cid),
+ *  ni por API ni por SMTP, y clientes como Gmail bloquean por default un
+ *  <img src> con una imagen incrustada como data-URI base64 — así que la
+ *  única forma real de que el QR se vea SIN abrir el adjunto es
+ *  referenciarlo por una URL normal, igual que ya se hace con el logo
+ *  (LOGO_URL en lib/brevo.js).
+ *
+ *  No requiere sesión (los clientes de correo cargan imágenes sin
+ *  cookies) ni consulta el Sheet: el "codigo" ya viaja en texto plano en
+ *  el mismo correo (impreso en rosa debajo de cada QR), así que volver a
+ *  dibujar su imagen aquí no revela nada nuevo — es la misma información,
+ *  solo que en forma de imagen. QRCode.toBuffer es determinístico, así
+ *  que esto siempre entrega el mismo PNG que se mandó de adjunto. */
+app.get('/api/qr/:codigo.png', limiterQr, async (req, res) => {
+  const codigo = req.params.codigo;
+  if (!RE_CODIGO_QR.test(codigo)) return res.status(400).end();
+  try {
+    const pngBuffer = await renderQrPng(codigo);
+    res.set('Content-Type', 'image/png');
+    // El PNG de un código dado nunca cambia: se puede cachear "para
+    // siempre" tanto en el cliente de correo como en cualquier proxy de
+    // imágenes de por medio (p. ej. Gmail las sirve desde su propio
+    // proxy/caché, googleusercontent.com).
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(pngBuffer);
+  } catch (err) {
+    console.error('No se pudo generar la imagen del QR:', err.message);
+    res.status(500).end();
+  }
 });
 
 app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (req, res) => {
@@ -375,17 +421,16 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
     const boletos = qrs.map((qr, i) => ({
       nombreBoleto: nombresPorBoleto[i],
       codigo: qr.codigo,
-      qrDataUrl: `data:image/png;base64,${qr.pngBuffer.toString('base64')}`,
     }));
 
     await brevo.enviarCorreo({
       to: compra.email,
       ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre, cantidad: compra.cantidad, boletos }),
-      // Brevo no soporta imágenes inline (cid) en su API, así que además
-      // del <img> con data-URI (best-effort según el cliente de correo)
-      // cada PNG va adjunto como archivo aparte, nombrado con el número de
-      // boleto — el cliente siempre puede guardarlo/imprimirlo aunque el
-      // correo no muestre las imágenes inline.
+      // El <img> del correo ya no lleva el PNG incrustado (data-URI) — ver
+      // la nota grande en GET /api/qr/:codigo.png y en plantillaConfirmacion
+      // (lib/brevo.js) sobre por qué eso no se veía en Gmail. Aun así,
+      // cada PNG sigue yendo TAMBIÉN adjunto por separado, nombrado con el
+      // número de boleto, para poder guardarlo/imprimirlo sin conexión.
       attachment: qrs.map((qr, i) => ({
         name: `boleto-${folio}-${i + 1}.png`,
         content: qr.pngBuffer.toString('base64'),

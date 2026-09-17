@@ -237,6 +237,15 @@ test('POST /api/confirmar pasa el registro a CONFIRMADO y genera un QR real por 
   assert.match(correo.html, new RegExp(`src="https://kaotikaz.com/api/qr/${codigosFolio1[0]}.png"`));
   assert.match(correo.html, new RegExp(`src="https://kaotikaz.com/api/qr/${codigosFolio1[1]}.png"`));
   assert.doesNotMatch(correo.html, /data:image\/png;base64/);
+  // Ubicación del venue (link de Google Maps que dio el usuario) — solo
+  // en el correo de CONFIRMACIÓN, no en el de registro.
+  assert.match(correo.html, /href="https:\/\/maps\.app\.goo\.gl\/nFXoagVKxnMU1gxA7"/);
+});
+
+test('el correo de REGISTRO (antes de confirmar) NO trae el link de ubicación (todavía no aplica)', () => {
+  const correoRegistro = correosEnviados.find((c) => c.to === 'ana@correo.com' && c.subject.includes('Registro recibido'));
+  assert.ok(correoRegistro);
+  assert.doesNotMatch(correoRegistro.html, /maps\.app\.goo\.gl/);
 });
 
 test('POST /api/confirmar sobre un folio ya confirmado responde 409 (no lo procesa dos veces)', async () => {

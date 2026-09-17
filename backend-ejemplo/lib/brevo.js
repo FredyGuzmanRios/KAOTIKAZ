@@ -60,6 +60,13 @@ const ROSA = '#ff2fb3'; // mismo rosa de marca que el resto del sitio ("rosita")
 // adjunto.
 const QR_BASE_URL = 'https://kaotikaz.com/api/qr';
 
+// Ubicación del venue (agregada 17 sep, link de Google Maps que dio el
+// usuario). Solo va en el correo de CONFIRMACIÓN (email #3): a quien
+// todavía no se le confirmó el pago no tiene caso mandarle todavía a
+// dónde ir. El sitio (index.html) sigue con el placeholder
+// "[VENUE POR CONFIRMAR]" -- eso es aparte, no se tocó aquí.
+const UBICACION_URL = 'https://maps.app.goo.gl/nFXoagVKxnMU1gxA7';
+
 const wrap = (contenido) => `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;
               background:#0d0d1a;color:#f2f2f2;padding:28px;border-radius:12px">
@@ -146,6 +153,8 @@ function plantillaConfirmacion({ folio, nombre, cantidad, boletos }) {
     subject: `✔ Pago confirmado — tu acceso ${folio}`,
     html: wrap(`
       <p>¡Listo, <b>${nombre}</b>! Tu pago fue confirmado.</p>
+      <p>📍 <b>Ubicación del evento</b>:
+      <a style="color:${ROSA}" href="${UBICACION_URL}" target="_blank" rel="noopener">Ver en Google Maps</a></p>
       <p>Este es tu acceso para <b>${cantidad} boleto(s)</b>${esGrupo
         ? ' — cada boleto tiene su propio código, uno por persona. Cada quien presenta el suyo en la entrada (esta imagen o el PNG adjunto a este correo con su nombre):'
         : '. Preséntalo en la entrada (esta imagen o el PNG adjunto a este correo):'}</p>

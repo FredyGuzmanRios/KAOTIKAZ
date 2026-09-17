@@ -24,8 +24,6 @@
         <label for="adminPass">Contraseña</label>
         <input type="password" id="adminPass" autocomplete="current-password">
       </div>
-      <!-- TODO-BACKEND: POST /api/login → cookie de sesión httpOnly.
-           NUNCA validar la contraseña en JS del cliente. -->
       <button class="btn-marcar" id="btnLogin">ENTRAR</button>
     </div>
   </div>
@@ -37,7 +35,8 @@
         <h1 class="section__title">Boletera Staff</h1>
         <p class="section__kicker">// clic en ATENDER para ver el caso completo</p>
       </div>
-      <div style="display:flex; align-items:center; gap:18px">
+      <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap">
+        <a class="btn-contact btn-contact--sheet" href="https://docs.google.com/spreadsheets/d/1XdMA0DVZ6fUOjK3ToXno8Lr_9LDULwVy366rI4LlFnQ/edit" target="_blank" rel="noopener">📊 VER EN SHEETS</a>
         <a class="btn-contact" href="escaneo.html">📷 ESCANEAR ACCESOS</a>
         <button class="btn-logout" id="btnLogout">cerrar sesión ✕</button>
       </div>
@@ -72,7 +71,7 @@
     </div>
 
     <p class="form-hint" style="margin-top:18px">
-      TODO-BACKEND: estas tablas se llenan desde Google Sheets vía GET /api/compras. Los datos actuales son demo.
+      Estas tablas se llenan en vivo desde Google Sheets — usa "VER EN SHEETS" arriba para el historial completo o para editar algo a mano.
     </p>
   </div>
 

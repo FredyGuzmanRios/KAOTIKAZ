@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "init-sheet": "node scripts/init-sheet.js",
-    "hash-password": "node scripts/hash-password.js"
+    "hash-password": "node scripts/hash-password.js",
+    "test": "node --test"
   },
   "engines": { "node": ">=18" },
   "dependencies": {

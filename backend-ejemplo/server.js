@@ -24,6 +24,8 @@ const brevo  = require('./lib/brevo');
 const { generarQr } = require('./lib/qr');
 const sesion = require('./lib/sesion');
 const { precioVigente } = require('./lib/precio');
+const { validarCompra, detectarImagen, sanitizeServer } = require('./lib/validacion');
+const { hashAdminVigente, RE_BCRYPT } = require('./lib/auth');
 
 const app = express();
 app.set('trust proxy', 1); // detrás del proxy de Coolify
@@ -43,11 +45,17 @@ app.use(helmet({
   },
 }));
 
-const limiterCompras = rateLimit({ windowMs: 10 * 60 * 1000, max: 5,
+// En NODE_ENV=test se sube el tope: las pruebas de integración (ver
+// test/compras-integration.test.js) hacen varias llamadas seguidas desde
+// la misma IP (127.0.0.1) y no deben chocar con el límite pensado para
+// gente real. En producción (NODE_ENV=production, ver .env.example)
+// esto NO cambia nada.
+const ES_TEST = process.env.NODE_ENV === 'test';
+const limiterCompras = rateLimit({ windowMs: 10 * 60 * 1000, max: ES_TEST ? 1000 : 5,
   message: { error: 'Demasiados intentos, espera 10 minutos.' } });
-const limiterLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 8,
+const limiterLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: ES_TEST ? 1000 : 8,
   message: { error: 'Demasiados intentos de login.' } });
-const limiterEscaneo = rateLimit({ windowMs: 60 * 1000, max: 40,
+const limiterEscaneo = rateLimit({ windowMs: 60 * 1000, max: ES_TEST ? 1000 : 40,
   message: { error: 'Muchos escaneos seguidos, espera un momento.' } });
 
 const upload = multer({
@@ -60,21 +68,6 @@ const upload = multer({
     cb(ok ? null : new Error('Solo imágenes JPG/PNG/WebP'), ok);
   },
 });
-
-/** Verifica el TIPO REAL del archivo leyendo sus primeros bytes.
- *  El MIME que declara el cliente es falsificable; esto no.
- *  Devuelve el mimetype real o null si no es imagen permitida. */
-function detectarImagen(buf) {
-  if (!buf || buf.length < 12) return null;
-  // JPEG: FF D8 FF
-  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
-      buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return 'image/png';
-  // WebP: "RIFF" .... "WEBP"
-  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  return null;
-}
 
 /** CAPTCHA Cloudflare Turnstile (gratis). Solo se usa si
  *  TURNSTILE_SECRET está configurado — ver SETUP.md §9. */
@@ -95,44 +88,9 @@ async function verificarTurnstile(token, ip) {
 }
 
 /* ───────────── 2. Validación server-side ───────────── */
-const RULES = {
-  nombre:   v => /^[a-záéíóúüñ\s.]{3,80}$/i.test(v),
-  email:    v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) && v.length <= 100,
-  whatsapp: v => v === '' || /^\d{10}$/.test(v),
-  cantidad: v => Number.isInteger(+v) && +v >= 1 && +v <= 5,
-  // Nota: ya no se pide la CLABE del comprador (decisión de diseño de la
-  // nueva landing — para validar el pago basta con el monto exacto y el
-  // concepto). El comprobante de transferencia sigue siendo obligatorio.
-};
-
-// Caracteres de control e invisibles unicode: 0x00-0x1f, 0x7f,
-// 0x200b-0x200f, 0x2028, 0x2029, 0xfeff.
-// (Construido con códigos para evitar problemas de codificación.)
-const CONTROL_CHARS = new RegExp(
-  '[' + String.fromCharCode(0x00) + '-' + String.fromCharCode(0x1f) +
-  String.fromCharCode(0x7f) +
-  String.fromCharCode(0x200b) + '-' + String.fromCharCode(0x200f) +
-  String.fromCharCode(0x2028) + String.fromCharCode(0x2029) +
-  String.fromCharCode(0xfeff) + ']', 'g');
-
-function sanitizeServer(str = '') {
-  return String(str).normalize('NFKC').replace(CONTROL_CHARS, '')
-    .replace(/[<>"'`\\]/g, '').trim();
-}
-
-/** Anti fórmula-injection para Sheets (=, +, -, @ al inicio). */
-function sheetSafe(v) { return /^[=+\-@]/.test(v) ? `'${v}` : v; }
-
-function validarCompra(body) {
-  const errores = [];
-  const limpio = {};
-  for (const [campo, regla] of Object.entries(RULES)) {
-    const valor = sanitizeServer(body[campo]);
-    if (!regla(valor)) errores.push(campo);
-    limpio[campo] = sheetSafe(valor);
-  }
-  return { errores, limpio };
-}
+// (extraída a lib/validacion.js: RULES, sanitizeServer, sheetSafe,
+// validarCompra, detectarImagen — así se puede probar con pruebas
+// unitarias sin levantar el servidor completo. Ver test/validacion.test.js)
 
 /* ───────────── 3. Cifrado en reposo (CLABE) ───────────── */
 const KEY = Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex');
@@ -256,32 +214,15 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
 });
 
 /* ───────────── 5. Login staff ───────────── */
-
-/** Un hash de bcrypt siempre tiene esta forma: $2a$/$2b$/$2y$ + costo de
- *  2 digitos + $ + 53 caracteres de sal+hash. Algunas plataformas de
- *  hosting (Coolify incluida, si no se marca "Is Literal") interpretan el
- *  signo $ dentro de una variable de entorno como el inicio de una
- *  referencia a otra variable (estilo ${OTRA_VAR}) y lo corrompen al
- *  guardarlo o inyectarlo al contenedor. Para blindarnos de eso: si el
- *  valor de ADMIN_PASSWORD_HASH no tiene pinta de hash bcrypt, probamos a
- *  decodificarlo como base64 (que no usa $ y por lo tanto no se corrompe)
- *  antes de darlo por invalido. */
-const RE_BCRYPT = /^\$2[aby]\$\d{2}\$.{53}$/;
-function hashAdminVigente() {
-  const raw = (process.env.ADMIN_PASSWORD_HASH || '').trim();
-  if (RE_BCRYPT.test(raw)) return raw;
-  try {
-    const decodificado = Buffer.from(raw, 'base64').toString('utf8').trim();
-    if (RE_BCRYPT.test(decodificado)) return decodificado;
-  } catch { /* no era base64 valido, seguimos con el valor crudo */ }
-  return raw;
-}
+// (hashAdminVigente vive en lib/auth.js — blindaje contra el signo $ de
+// bcrypt corrompiéndose en variables de entorno mal configuradas. Ver
+// test/auth.test.js.)
 
 // Diagnostico al arrancar: nunca imprime el hash ni la contraseña, solo si
 // el formato final es el esperado -- para poder revisar en los logs de
 // Coolify sin exponer secretos si el login sigue fallando.
 {
-  const hashFinal = hashAdminVigente();
+  const hashFinal = hashAdminVigente(process.env.ADMIN_PASSWORD_HASH);
   const usuarioCargado = process.env.ADMIN_USER || '';
   console.log('[login] ADMIN_USER cargado:', JSON.stringify(usuarioCargado),
     `(${usuarioCargado.length} caracteres)`);
@@ -292,7 +233,7 @@ function hashAdminVigente() {
 app.post('/api/login', limiterLogin, express.json(), async (req, res) => {
   const { usuario, password } = req.body || {};
   const okUser = String(usuario || '').trim() === (process.env.ADMIN_USER || '').trim();
-  const okPass = await bcrypt.compare(String(password || ''), hashAdminVigente());
+  const okPass = await bcrypt.compare(String(password || ''), hashAdminVigente(process.env.ADMIN_PASSWORD_HASH));
   if (!okUser || !okPass) return res.status(401).json({ error: 'Credenciales incorrectas' });
   sesion.setCookie(res, sesion.crearToken(usuario), req);
   res.json({ ok: true });
@@ -440,4 +381,15 @@ app.post('/api/rechazar', sesion.requiereSesion, express.json(), async (req, res
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Kaotikaz backend en :${PORT}`));
+
+// require.main === module: solo arranca el servidor de verdad cuando se
+// corre "node server.js" / "npm start" (como lo hace Coolify). Cuando un
+// archivo de pruebas hace require('../server') para levantarlo en un
+// puerto efímero (ver test/compras-integration.test.js), este bloque NO
+// se ejecuta — así las pruebas no compiten por el puerto 3000 ni dejan
+// un servidor real corriendo de fondo.
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Kaotikaz backend en :${PORT}`));
+}
+
+module.exports = app;

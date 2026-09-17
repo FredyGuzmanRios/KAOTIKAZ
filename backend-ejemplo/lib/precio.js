@@ -32,16 +32,22 @@ function hoyCDMX() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Mexico_City' });
 }
 
-/** Precio vigente hoy según PRECIOS, salvo que exista un override
- *  manual en la variable de entorno PRECIO_BOLETO. */
-function precioVigente() {
-  if (process.env.PRECIO_BOLETO) return +process.env.PRECIO_BOLETO;
-
-  const hoy = hoyCDMX();
+/** Lógica pura de la tabla de etapas: dada una fecha 'YYYY-MM-DD',
+ *  devuelve el precio que le toca. Separada de precioVigente() para que
+ *  se pueda probar con fechas fijas (ver test/precio.test.js) sin tener
+ *  que esperar a que cambie el reloj del sistema. */
+function precioParaFecha(fechaYYYYMMDD) {
   for (const etapa of PRECIOS) {
-    if (etapa.hasta === null || hoy <= etapa.hasta) return etapa.precio;
+    if (etapa.hasta === null || fechaYYYYMMDD <= etapa.hasta) return etapa.precio;
   }
   return PRECIOS[PRECIOS.length - 1].precio; // por si acaso
 }
 
-module.exports = { precioVigente, PRECIOS };
+/** Precio vigente hoy según PRECIOS, salvo que exista un override
+ *  manual en la variable de entorno PRECIO_BOLETO. */
+function precioVigente() {
+  if (process.env.PRECIO_BOLETO) return +process.env.PRECIO_BOLETO;
+  return precioParaFecha(hoyCDMX());
+}
+
+module.exports = { precioVigente, precioParaFecha, hoyCDMX, PRECIOS };

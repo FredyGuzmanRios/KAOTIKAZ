@@ -54,4 +54,8 @@ async function main() {
   console.log('✔ Sheet listo. Hoja "Compras" con encabezados y "Config" con precio=400.');
 }
 
-main().catch(e => { console.error('Error:', e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('Error:', e.message); process.exit(1); });
+}
+
+module.exports = { ENCABEZADOS };

@@ -56,6 +56,46 @@ function setEstado(txt, pie){
   $('estado').textContent = txt;
   if (pie) $('pie').innerHTML = pie + '<span class="cursor">&#9646;</span>';
 }
+
+/* ---------- Alerta on-brand (reemplaza alert() nativo) ----------
+   Un alert() del navegador es gris/sistema y rompe el branding del
+   sitio. Este modal se ve como el resto de kaotikaz (rosa neon sobre
+   fondo negro, fuente pixel) pero sigue siendo imposible de ignorar:
+   tapa toda la pantalla hasta que le dan ENTENDIDO. */
+function kzAlert(mensaje, titulo){
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'kz-alert-overlay';
+
+    const caja = document.createElement('div');
+    caja.className = 'kz-alert';
+
+    const pTitulo = document.createElement('p');
+    pTitulo.className = 'kz-alert__titulo';
+    pTitulo.textContent = titulo;
+
+    const pMsg = document.createElement('p');
+    pMsg.className = 'kz-alert__msg';
+    pMsg.textContent = mensaje; // textContent: anti-XSS, mensaje puede traer datos del usuario
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'kz-alert__btn';
+    btn.textContent = 'ENTENDIDO';
+
+    caja.append(pTitulo, pMsg, btn);
+    overlay.append(caja);
+    document.body.append(overlay);
+
+    const cerrar = () => { overlay.remove(); resolve(); };
+    btn.addEventListener('click', cerrar);
+    overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(); });
+    document.addEventListener('keydown', function onKey(e){
+      if (e.key === 'Escape'){ document.removeEventListener('keydown', onKey); cerrar(); }
+    });
+    btn.focus();
+  });
+}
 function arrancarReloj(){
   if (timer) return;
   timer = setInterval(() => {
@@ -186,9 +226,10 @@ $('form').addEventListener('submit', async e => {
   setEstado('MARCANDO', 'ENVIANDO TU COMPROBANTE…');
 
   try{
+    const emailLimpio = cleanField($('email').value, 100);
     const data = new FormData();
     data.append('nombre', cleanField($('nombre').value, 80));
-    data.append('email', cleanField($('email').value, 100));
+    data.append('email', emailLimpio);
     data.append('whatsapp', cleanField($('whats').value, 10));
     data.append('cantidad', cant);
     data.append('comprobante', $('comp').files[0]);
@@ -230,9 +271,27 @@ $('form').addEventListener('submit', async e => {
       '<p class="hint" style="text-align:center;font-size:10px;line-height:2.2;margin-top:18px">' +
       'REGISTRAMOS TU COMPRA POR $' + money(json.monto) + ' MXN.<br>CUANDO VALIDEMOS EL PAGO TE LLEGA EL QR AL CORREO,<br>' +
       'CON LA FECHA, KAOTIKAZ Y LOS COLECTIVOS IMPRESOS.</p>' + extra;
+
+    // Alerta explícita ademas del ticket: el ticket vive arriba del todo
+    // (".pantalla") y en el paso 3 (donde está el boton de enviar) puede
+    // quedar fuera de vista aunque haya scroll automatico -- esta alerta
+    // (kzAlert, con el branding de kaotikaz) nunca se puede pasar por
+    // alto, sin importar en que parte de la pagina este parado quien compra.
+    await kzAlert(
+      '¡Gracias por tu compra! Folio ' + folio + '. En cuanto validemos tu pago te llega el QR a ' + emailLimpio,
+      '✔ COMPRA REGISTRADA'
+    );
   } catch(err){
     setEstado('ERROR', (err.message || 'REVISA TUS DATOS E INTENTA DE NUEVO').toUpperCase());
+    document.querySelector('.pantalla').scrollIntoView({behavior:'smooth', block:'start'});
     if (turnstileActivo && window.turnstile) window.turnstile.reset();
+    // Alerta explícita: sin esto, un error que ocurre mientras se está
+    // parado en el paso 3 (mas abajo en la pagina) puede pasar totalmente
+    // desapercibido -- el mensaje de error solo se veia arriba del todo.
+    await kzAlert(
+      err.message || 'No se pudo registrar tu compra, revisa tus datos e intenta de nuevo.',
+      '✘ ALGO SALIÓ MAL'
+    );
   } finally {
     if (btn){ btn.disabled = false; btn.textContent = textoOriginal; }
   }

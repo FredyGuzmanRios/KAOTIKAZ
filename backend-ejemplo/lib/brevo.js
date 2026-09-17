@@ -65,8 +65,12 @@ function plantillaRegistro({ folio, nombre, cantidad, monto }) {
   };
 }
 
-/** Email #2 — al admin: nuevo registro + link wa.me para contactar. */
-function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto, comprobante }) {
+/** Email #2 — al admin: nuevo registro + link wa.me para contactar.
+ *  El comprobante YA NO se sube a Drive (la cuenta de servicio no tiene
+ *  cuota de almacenamiento propia) — server.js lo manda como ARCHIVO
+ *  ADJUNTO de este mismo correo, por eso aquí solo se avisa que viene
+ *  adjunto en vez de poner un link. */
+function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto }) {
   const wa = whatsapp
     ? `<p><a style="color:#25d366" href="https://wa.me/52${whatsapp}?text=${encodeURIComponent(
         `Hola ${nombre.split(' ')[0]}, somos staff de Kaotikaz. Recibimos tu registro ${folio}.`
@@ -82,7 +86,7 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto, compr
         <tr><td>Email</td><td>${email}</td></tr>
         <tr><td>Boletos</td><td>${cantidad} — $${monto} MXN</td></tr>
       </table>
-      <p><a style="color:#8be9fd" href="${comprobante}">🧾 Ver comprobante</a></p>
+      <p>🧾 El comprobante de transferencia viene <b>adjunto</b> a este correo.</p>
       ${wa}
       <p>Entra al <b>panel staff</b> para confirmar o rechazar.</p>`),
   };

@@ -133,15 +133,10 @@ function abrirModal(caso) {
   badge.className = esPend ? 'badge badge--pend' : 'badge badge--conf';
   document.getElementById('mActions').classList.toggle('hidden', !esPend);
 
-  // Comprobante real (link de Drive)
-  const linkComp = document.getElementById('mCompLink');
-  if (caso.comprobante && caso.comprobante !== '#') {
-    linkComp.href = caso.comprobante;
-    linkComp.textContent = 'Ver comprobante de transferencia';
-  } else {
-    linkComp.removeAttribute('href');
-    linkComp.textContent = '(sin comprobante)';
-  }
+  // El comprobante ya no se guarda como link (ver nota en admin.html y en
+  // backend-ejemplo/server.js) — llega como adjunto al correo de "nuevo
+  // registro" de este folio, así que solo recordamos el folio a buscar.
+  document.getElementById('mCompFolio').textContent = caso.folio;
 
   // Contacto directo, con datos precargados
   const asunto = encodeURIComponent(`Tu compra ${caso.folio} — Kaotikaz`);

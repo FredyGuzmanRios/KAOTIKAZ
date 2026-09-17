@@ -165,21 +165,32 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
 
     const folio = 'K-' + String(Date.now()).slice(-6);
 
-    // 1. Comprobante a Drive (con el tipo REAL detectado)
-    const comprobante = await g.subirComprobante(req.file.buffer, tipoReal, folio);
-
-    // 2. Fila en el Sheet (esto es lo que ve el panel staff)
+    // 1. Fila en el Sheet (esto es lo que ve el panel staff)
+    //
+    // NOTA (17 sep): el comprobante YA NO se sube a Google Drive. La cuenta
+    // de servicio (boletera@kaotikaz.iam...) no tiene cuota de
+    // almacenamiento propia — Google la rechaza con
+    // "storageQuotaExceeded" al intentar CREAR un archivo nuevo en una
+    // carpeta normal de Drive, sin importar qué tan compartida esté esa
+    // carpeta (esto tronaba silenciosamente cada compra con un 500, así
+    // que NINGÚN registro se estaba guardando). Arreglar esto de verdad
+    // requeriría o Google Workspace (Unidad compartida) o Google Cloud
+    // Storage — ambos con costo/instalación extra. Mientras tanto, el
+    // comprobante se manda como ARCHIVO ADJUNTO en el correo de "nuevo
+    // registro" al admin (ver más abajo) — no se guarda ningún link en el
+    // Sheet ni queda expuesto en el panel de staff.
     await g.agregarCompra({
       folio, fecha: ahora(),
       nombre: limpio.nombre, email: limpio.email, whatsapp: limpio.whatsapp,
       cantidad: limpio.cantidad, monto,
       // clabeCifrada: ya no se recolecta (ver nota en RULES arriba);
       // la columna se queda vacía para compras nuevas.
-      comprobante, estado: 'PENDIENTE',
+      // comprobante: se queda vacía a propósito (ver nota de arriba).
+      comprobante: '', estado: 'PENDIENTE',
       qrEnviado: 'NO', emailRegistro: 'NO', emailConfirmacion: 'NO',
     });
 
-    // 3. Correos (si Brevo falla, la compra YA quedó registrada)
+    // 2. Correos (si Brevo falla, la compra YA quedó registrada)
     try {
       await brevo.enviarCorreo({
         to: limpio.email,
@@ -190,11 +201,20 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
 
     try {
       if (process.env.ADMIN_EMAIL) {
+        const extAdjunto = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[tipoReal] || 'bin';
         await brevo.enviarCorreo({
           to: process.env.ADMIN_EMAIL,
           ...brevo.plantillaAdmin({ folio, nombre: limpio.nombre, email: limpio.email,
-            whatsapp: limpio.whatsapp, cantidad: limpio.cantidad, monto, comprobante }),
+            whatsapp: limpio.whatsapp, cantidad: limpio.cantidad, monto }),
+          // El comprobante va adjunto directo al correo (ver nota de
+          // arriba) — nunca se sube a Drive.
+          attachment: [{ name: `comprobante-${folio}.${extAdjunto}`, content: req.file.buffer.toString('base64') }],
         });
+      } else {
+        // Sin ADMIN_EMAIL configurado, el comprobante no llega a ningún
+        // lado (ya no se guarda en Drive) — se deja constancia en los
+        // logs para que no pase desapercibido.
+        console.error(`⚠ ADMIN_EMAIL no está configurado: el comprobante de ${folio} no se envió a nadie.`);
       }
     } catch (e) { console.error('Email admin falló:', e.message); }
 
@@ -230,6 +250,15 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
     RE_BCRYPT.test(hashFinal) ? 'SI' : 'NO -- revisar la variable en Coolify (ver comentario arriba)');
 }
 
+// Diagnostico al arrancar: desde el 17 sep, el comprobante de cada compra
+// se manda como adjunto al correo de ADMIN_EMAIL (ya no se sube a Drive,
+// ver POST /api/compras) — sin esta variable, el comprobante de CADA
+// compra se pierde (la fila del Sheet se guarda igual, solo el
+// comprobante en sí no llega a ningún lado).
+if (!process.env.ADMIN_EMAIL) {
+  console.warn('[compras] ⚠ ADMIN_EMAIL no está configurado: el comprobante de cada compra no se va a mandar a nadie.');
+}
+
 app.post('/api/login', limiterLogin, express.json(), async (req, res) => {
   const { usuario, password } = req.body || {};
   const okUser = String(usuario || '').trim() === (process.env.ADMIN_USER || '').trim();
@@ -250,8 +279,6 @@ app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
       folio: c.folio, fecha: c.fecha, nombre: c.nombre, email: c.email,
       whatsapp: c.whatsapp, cantidad: +c.cantidad || 0, monto: +c.monto || 0,
       clabe: c.clabeCifrada ? descifrar(c.clabeCifrada) : '',
-      // El panel NUNCA recibe el link directo de Drive: usa el proxy autenticado
-      comprobante: c.comprobante ? `/api/comprobante/${c.folio}` : '',
       estado: c.estado,
       validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
       escaneadoEn: c.escaneadoEn || '',
@@ -262,26 +289,10 @@ app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
   }
 });
 
-/** Comprobante SIN link público: el servidor lo descarga de Drive con
- *  la service account y lo sirve SOLO a staff con sesión válida. */
-app.get('/api/comprobante/:folio', sesion.requiereSesion, async (req, res) => {
-  try {
-    const folio = sanitizeServer(req.params.folio);
-    const compras = await g.listarCompras();
-    const compra = compras.find(c => c.folio === folio);
-    if (!compra || !compra.comprobante) return res.status(404).json({ error: 'Sin comprobante' });
-
-    const archivo = await g.descargarComprobante(compra.comprobante);
-    if (!archivo) return res.status(404).json({ error: 'Archivo no disponible' });
-
-    res.setHeader('Content-Type', archivo.mimeType);
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    res.send(archivo.buffer);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'No se pudo cargar el comprobante.' });
-  }
-});
+// (el viejo /api/comprobante/:folio, que descargaba el archivo de Drive
+// para el panel de staff, se quitó el 17 sep junto con la subida a Drive
+// — ver la nota grande en POST /api/compras. El comprobante ahora llega
+// como adjunto en el correo de "nuevo registro" al admin.)
 
 app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, res) => {
   try {

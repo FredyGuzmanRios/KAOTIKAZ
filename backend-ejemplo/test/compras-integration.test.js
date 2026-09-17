@@ -19,9 +19,9 @@ process.env.NODE_ENV = 'test';
 process.env.SESSION_SECRET = 'sesion-secret-de-prueba';
 process.env.ENCRYPTION_KEY = require('crypto').randomBytes(32).toString('hex');
 process.env.ADMIN_USER = 'staff_prueba';
+process.env.ADMIN_EMAIL = 'admin-prueba@example.com'; // para probar el adjunto del comprobante
 delete process.env.TURNSTILE_SECRET;   // sin captcha en pruebas
 delete process.env.PRECIO_BOLETO;      // usa la tabla real de lib/precio.js
-delete process.env.ADMIN_EMAIL;        // evita el correo extra al admin
 delete process.env.ADMIN_WHATSAPP;
 
 const test = require('node:test');
@@ -42,7 +42,10 @@ const g = require('../lib/google');
 const brevo = require('../lib/brevo');
 
 let filas = []; // esto hace las veces de la hoja "Compras" del Sheet
-g.subirComprobante = async () => 'https://drive.example.com/fake-comprobante';
+// Nota: el comprobante YA NO se sube a Drive (ver server.js, 17 sep — las
+// cuentas de servicio no tienen cuota de almacenamiento propia y esto
+// tronaba con 500 en cada compra real). No hace falta doble de
+// subirComprobante/descargarComprobante: server.js ya no los llama.
 g.agregarCompra = async (compra) => { filas.push({ ...compra }); };
 g.listarCompras = async () => filas.map((f, i) => ({ ...f, _row: i + 2 }));
 g.actualizarCompra = async (folio, cambios) => {
@@ -132,7 +135,16 @@ test('POST /api/compras con datos válidos y comprobante SÍ guarda el registro 
   assert.equal(filas[0].email, 'ana@correo.com');
   assert.equal(filas[0].cantidad, '2');
   assert.equal(filas[0].qrEnviado, 'NO');
+  assert.equal(filas[0].comprobante, ''); // ya no se guarda ningún link de Drive
   assert.ok(correosEnviados.some((c) => c.to === 'ana@correo.com'));
+
+  // El comprobante viaja como adjunto en el correo al admin, no a Drive
+  // (ver la nota grande en server.js sobre storageQuotaExceeded).
+  const correoAdmin = correosEnviados.find((c) => c.to === process.env.ADMIN_EMAIL);
+  assert.ok(correoAdmin, 'debe mandarse un correo a ADMIN_EMAIL con el comprobante adjunto');
+  assert.equal(correoAdmin.attachment.length, 1);
+  assert.match(correoAdmin.attachment[0].name, /^comprobante-K-\d+\.png$/);
+  assert.ok(correoAdmin.attachment[0].content.length > 0);
 });
 
 test('el honeypot ("website" lleno) responde ok pero NO guarda nada', async () => {

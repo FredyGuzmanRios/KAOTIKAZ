@@ -846,6 +846,45 @@ body::before {
   text-align: center;
 }
 
+/* Alerta on-brand (reemplaza el alert() nativo del navegador en
+   js/compra.js) -- mismo lenguaje visual que el resto del sitio:
+   rosa neon sobre fondo negro, fuente pixel, animación de .modal. */
+.kz-alert-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: grid; place-items: center; padding: 20px;
+}
+.kz-alert {
+  width: min(420px, 100%);
+  background: #050505;
+  border: 2px solid var(--neon-pink);
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 1px rgba(255,47,126,.25), 0 0 40px rgba(255,47,126,.35),
+              0 12px 40px rgba(0,0,0,.6);
+  padding: 30px 26px 24px;
+  text-align: center;
+  animation: modal-pop .25s cubic-bezier(.34,1.6,.64,1);
+}
+.kz-alert__titulo {
+  font-family: var(--font-pixel); font-size: 13px;
+  color: var(--neon-pink); letter-spacing: 2px;
+  text-shadow: 0 0 10px rgba(255,47,126,.6);
+  margin-bottom: 16px;
+}
+.kz-alert__msg {
+  font-family: var(--font-console); font-size: 17px; line-height: 1.6;
+  color: var(--ink); margin-bottom: 24px;
+}
+.kz-alert__btn {
+  font-family: var(--font-pixel); font-size: 10px; letter-spacing: 1px;
+  background: none; border: 2px solid var(--neon-pink); color: var(--neon-pink);
+  border-radius: 8px; padding: 10px 28px; cursor: pointer;
+  transition: all .15s;
+}
+.kz-alert__btn:hover, .kz-alert__btn:focus { background: var(--neon-pink); color: #2b0521; outline: none; }
+
 .tabla-vacia {
   font-family: var(--font-console); font-size: 19px; color: var(--ink-dim);
   text-align: center; padding: 40px 0;

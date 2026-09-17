@@ -924,6 +924,11 @@ body::before {
   font-family: var(--font-body); font-size: 15px; color: var(--ink-dim); margin-bottom: 16px;
 }
 
-/* Indicador de check-in en la tabla de confirmados (admin.html) */
-.badge--entro   { background: rgba(57,255,20,.14); color: var(--neon-green); border: 1px solid var(--neon-green); }
-.badge--noentro { background: rgba(185,168,196,.12); color: var(--ink-dim); border: 1px solid var(--glass-border); }
+/* Indicador de check-in en la tabla de confirmados (admin.html) — desde
+   que hay un QR por persona, una compra de 2+ boletos puede tener SOLO
+   ALGUNOS de sus invitados adentro, por eso el estado intermedio
+   ("badge--parcial", ámbar, igual que badge--pend) entre "nadie ha
+   entrado" y "todos entraron". */
+.badge--entro    { background: rgba(57,255,20,.14);  color: var(--neon-green); border: 1px solid var(--neon-green); }
+.badge--parcial  { background: rgba(255,210,63,.18);  color: #ffd23f;          border: 1px solid #ffd23f; }
+.badge--noentro  { background: rgba(185,168,196,.12); color: var(--ink-dim);   border: 1px solid var(--glass-border); }

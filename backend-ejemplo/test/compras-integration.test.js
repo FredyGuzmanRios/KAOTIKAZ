@@ -199,9 +199,9 @@ test('GET /api/compras con sesión ve el registro pendiente recién creado', asy
 
 /* ---------- 4. Confirmar: PENDIENTE -> CONFIRMADO + QR ---------- */
 
-let codigoQr1;
+let codigosFolio1; // un código QR por boleto (folio1 tiene cantidad=2, sin nombresExtra)
 
-test('POST /api/confirmar pasa el registro a CONFIRMADO y genera un QR real', async () => {
+test('POST /api/confirmar pasa el registro a CONFIRMADO y genera un QR real por boleto', async () => {
   const res = await fetch(`${base}/api/confirmar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
@@ -210,14 +210,26 @@ test('POST /api/confirmar pasa el registro a CONFIRMADO y genera un QR real', as
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.ok, true);
-  assert.match(json.codigoQr, /^KTZ-/);
-  codigoQr1 = json.codigoQr;
+  assert.equal(json.codigos.length, 2); // cantidad=2 -> 2 códigos, uno por persona
+  json.codigos.forEach((c) => assert.match(c, /^KTZ-/));
+  assert.notEqual(json.codigos[0], json.codigos[1]); // cada boleto tiene su PROPIO código
+  codigosFolio1 = json.codigos;
 
   const fila = filas.find((f) => f.folio === folio1);
   assert.equal(fila.estado, 'CONFIRMADO');
   assert.equal(fila.qrEnviado, 'SI');
   assert.ok(fila.validado);
-  assert.ok(correosEnviados.some((c) => c.subject && c.subject.includes('Pago confirmado')));
+  assert.deepEqual(JSON.parse(fila.codigoQr), codigosFolio1);
+  assert.deepEqual(JSON.parse(fila.escaneadoEn), ['', '']); // nadie ha entrado todavía
+
+  const correo = correosEnviados.find((c) => c.subject && c.subject.includes('Pago confirmado'));
+  assert.ok(correo);
+  // Sin nombresExtra, el boleto 2 se etiqueta "Invitado 2" (ver server.js)
+  // y, al ser 2+ boletos, cada uno trae su propia etiqueta "Boleto N de 2".
+  assert.match(correo.html, /Boleto 1 de 2 — Ana Pérez/);
+  assert.match(correo.html, /Boleto 2 de 2 — Invitado 2/);
+  assert.match(correo.html, new RegExp(codigosFolio1[0]));
+  assert.match(correo.html, new RegExp(codigosFolio1[1]));
 });
 
 test('POST /api/confirmar sobre un folio ya confirmado responde 409 (no lo procesa dos veces)', async () => {
@@ -252,28 +264,53 @@ test('un segundo registro se puede rechazar con motivo, y su estado pasa a RECHA
   assert.equal(fila.notas, 'El monto transferido no coincide');
 });
 
-/* ---------- 6. Escaneo en la puerta: valida y evita reingresos ---------- */
+/* ---------- 6. Escaneo en la puerta: un QR por persona, cada quien
+   entra por separado (evita reingresos SOLO del código ya usado) ---------- */
 
-test('POST /api/escanear con el QR confirmado marca la entrada la primera vez', async () => {
+test('POST /api/escanear con el QR del boleto 1 (la compradora) marca SU entrada', async () => {
   const res = await fetch(`${base}/api/escanear`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ codigoQr: codigoQr1 }),
+    body: JSON.stringify({ codigoQr: codigosFolio1[0] }),
   });
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.resultado, 'OK');
   assert.equal(json.folio, folio1);
+  assert.equal(json.nombre, 'Ana Pérez');
+  assert.equal(json.boleto, 1);
+  assert.equal(json.cantidad, 2);
+  assert.equal(json.escaneados, 1); // solo ella, todavía no el boleto 2
 });
 
 test('POST /api/escanear con el MISMO QR una segunda vez lo marca YA_USADO (anti reingreso)', async () => {
   const res = await fetch(`${base}/api/escanear`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ codigoQr: codigoQr1 }),
+    body: JSON.stringify({ codigoQr: codigosFolio1[0] }),
   });
   assert.equal(res.status, 409);
   assert.equal((await res.json()).resultado, 'YA_USADO');
+});
+
+test('el QR del boleto 2 de la MISMA compra sigue funcionando aunque el boleto 1 ya haya entrado (acceso independiente por persona)', async () => {
+  const res = await fetch(`${base}/api/escanear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ codigoQr: codigosFolio1[1] }),
+  });
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.resultado, 'OK');
+  assert.equal(json.folio, folio1);
+  assert.equal(json.nombre, 'Invitado 2'); // folio1 no llevó nombresExtra (ver arriba)
+  assert.equal(json.boleto, 2);
+  assert.equal(json.escaneados, 2); // ahora sí entraron los 2 boletos de esta compra
+
+  // GET /api/compras debe reflejar el detalle boleto por boleto para el panel de staff.
+  const resLista = await fetch(`${base}/api/compras`, { headers: { Cookie: cookie } });
+  const compra = (await resLista.json()).find((c) => c.folio === folio1);
+  assert.equal(compra.escaneos.filter(Boolean).length, 2);
 });
 
 test('POST /api/escanear con un código que no existe responde NO_ENCONTRADO', async () => {
@@ -297,7 +334,7 @@ test('POST /api/compras rechaza nombresExtra si no trae la cantidad correcta de 
   assert.ok(json.campos.includes('nombresExtra'));
 });
 
-test('una compra con nombresExtra guarda el nombre de cada boleto, y el correo de confirmación los lista', async () => {
+test('una compra con nombresExtra guarda el nombre de cada boleto, y el correo de confirmación trae un QR separado y etiquetado por persona', async () => {
   const fd = formularioCompra({ nombre: 'Carla Gómez', email: 'carla@correo.com', cantidad: '3' });
   fd.append('nombresExtra', JSON.stringify(['Luis Torres', 'Marta Díaz']));
   const res = await fetch(`${base}/api/compras`, { method: 'POST', body: fd });
@@ -313,27 +350,49 @@ test('una compra con nombresExtra guarda el nombre de cada boleto, y el correo d
     body: JSON.stringify({ folio }),
   });
   assert.equal(resConf.status, 200);
+  const { codigos } = await resConf.json();
+  assert.equal(codigos.length, 3); // comprador + 2 invitados = 3 QR independientes
+  assert.equal(new Set(codigos).size, 3); // los 3 códigos son distintos entre sí
 
   const correo = correosEnviados.find((c) => c.to === 'carla@correo.com' && c.subject.includes('Pago confirmado'));
   assert.ok(correo, 'debe mandarse el correo de confirmación al comprador');
-  assert.match(correo.html, /Carla Gómez - Luis Torres/);
-  assert.match(correo.html, /Carla Gómez - Marta Díaz/);
+  // Cada boleto se etiqueta con SU nombre (no "comprador - invitado"), ya
+  // que cada uno tiene su propio bloque separado con su propio QR.
+  assert.match(correo.html, /Boleto 1 de 3 — Carla Gómez/);
+  assert.match(correo.html, /Boleto 2 de 3 — Luis Torres/);
+  assert.match(correo.html, /Boleto 3 de 3 — Marta Díaz/);
+  codigos.forEach((c) => assert.match(correo.html, new RegExp(c)));
+
+  // Cada código escanea de forma independiente: el de Luis no depende del de Carla.
+  const resEscLuis = await fetch(`${base}/api/escanear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ codigoQr: codigos[1] }),
+  });
+  const jsonEscLuis = await resEscLuis.json();
+  assert.equal(jsonEscLuis.resultado, 'OK');
+  assert.equal(jsonEscLuis.nombre, 'Luis Torres');
+  assert.equal(jsonEscLuis.boleto, 2);
+  assert.equal(jsonEscLuis.escaneados, 1); // Carla y Marta todavía no han entrado
 });
 
-test('una compra de 1 boleto no manda nombresExtra y el correo de confirmación no muestra la lista de titulares', async () => {
+test('una compra de 1 boleto no manda nombresExtra y el correo de confirmación no muestra etiquetas de "boleto N de M" (innecesarias con un solo QR)', async () => {
   const res = await fetch(`${base}/api/compras`, {
     method: 'POST',
     body: formularioCompra({ nombre: 'Dario Ruiz', email: 'dario@correo.com', cantidad: '1' }),
   });
   const { folio } = await res.json();
 
-  await fetch(`${base}/api/confirmar`, {
+  const resConf = await fetch(`${base}/api/confirmar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({ folio }),
   });
+  const { codigos } = await resConf.json();
+  assert.equal(codigos.length, 1);
 
   const correo = correosEnviados.find((c) => c.to === 'dario@correo.com' && c.subject.includes('Pago confirmado'));
   assert.ok(correo);
-  assert.doesNotMatch(correo.html, /Boletos a nombre de/);
+  assert.doesNotMatch(correo.html, /Boleto 1 de 1/);
+  assert.match(correo.html, new RegExp(codigos[0]));
 });

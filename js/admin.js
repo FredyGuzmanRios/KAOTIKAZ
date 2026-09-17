@@ -75,14 +75,24 @@ function render() {
     tr.append(td(c.folio), td(c.nombre), td(c.cantidad), td('$' + c.monto),
               td(c.validado || '—'), td(c.qrEnviado ? '✔ sí' : '✘ no'));
 
+    // Desde que hay un QR por persona (ver backend-ejemplo/server.js),
+    // c.escaneos es un arreglo con una marca por boleto — en una compra de
+    // 2+ boletos puede haber entrado solo PARTE del grupo, por eso el
+    // badge ámbar intermedio (el detalle boleto por boleto está en el
+    // modal, ver abrirModal más abajo).
+    const escaneos = c.escaneos || [];
+    const entraron = escaneos.filter(Boolean).length;
     const tdEntrada = document.createElement('td');
     const badgeEntrada = document.createElement('span');
-    if (c.escaneadoEn) {
-      badgeEntrada.className = 'badge badge--entro';
-      badgeEntrada.textContent = '✔ ' + c.escaneadoEn;
-    } else {
+    if (entraron === 0) {
       badgeEntrada.className = 'badge badge--noentro';
       badgeEntrada.textContent = '— no ha entrado';
+    } else if (entraron < c.cantidad) {
+      badgeEntrada.className = 'badge badge--parcial';
+      badgeEntrada.textContent = `⚠ ${entraron}/${c.cantidad} entraron`;
+    } else {
+      badgeEntrada.className = 'badge badge--entro';
+      badgeEntrada.textContent = `✔ ${entraron}/${c.cantidad} entraron`;
     }
     tdEntrada.append(badgeEntrada);
     tr.append(tdEntrada);
@@ -138,6 +148,23 @@ function abrirModal(caso) {
     const lista = [`${caso.nombre} (boleto 1)`,
       ...caso.nombresBoletos.map((n, i) => `${caso.nombre} - ${n} (boleto ${i + 2})`)];
     document.getElementById('mNombresBoletos').textContent = lista.join(' · ');
+  }
+
+  // Acceso por boleto: desde que cada boleto tiene su PROPIO QR (ver
+  // backend-ejemplo/server.js), caso.escaneos es un arreglo paralelo a
+  // [nombre, ...nombresBoletos] — cada quien puede haber entrado (o no)
+  // por separado. Solo tiene sentido mostrarlo una vez confirmada la
+  // compra (antes de eso no hay ningún QR generado todavía).
+  const filaAcceso = document.getElementById('mAccesoRow');
+  const tieneAcceso = caso.estado === 'CONFIRMADO' && Array.isArray(caso.escaneos) && caso.escaneos.length > 0;
+  filaAcceso.classList.toggle('hidden', !tieneAcceso);
+  if (tieneAcceso) {
+    const nombresPorBoleto = [caso.nombre, ...(caso.nombresBoletos || [])];
+    const lista = caso.escaneos.map((marca, i) => {
+      const quien = nombresPorBoleto[i] || `Invitado ${i + 1}`;
+      return marca ? `✔ ${quien} (boleto ${i + 1}) — entró ${marca}` : `— ${quien} (boleto ${i + 1}) sin entrar`;
+    });
+    document.getElementById('mAcceso').textContent = lista.join(' · ');
   }
 
   const badge = document.getElementById('mBadge');

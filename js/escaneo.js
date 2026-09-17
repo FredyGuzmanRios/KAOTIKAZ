@@ -126,9 +126,14 @@ function mostrarResultado(r) {
   folio.textContent = r.folio ? `Folio ${r.folio}` : '—';
 
   if (r.resultado === 'OK') {
-    detalle.textContent = `${r.nombre} · ${r.cantidad} boleto(s). Entrada registrada ahora.`;
+    // Desde que hay un QR por persona, cada escaneo es de UN boleto de la
+    // compra (r.boleto de r.cantidad) — r.escaneados dice cuántos de esa
+    // misma compra ya entraron en total, incluido este.
+    detalle.textContent = `${r.nombre} · boleto ${r.boleto} de ${r.cantidad}. ` +
+      `Entrada registrada ahora (${r.escaneados}/${r.cantidad} de esta compra ya entraron).`;
   } else if (r.resultado === 'YA_USADO') {
-    detalle.textContent = `${r.nombre} · ${r.cantidad} boleto(s). Ya había entrado: ${r.escaneadoEn}.`;
+    detalle.textContent = `${r.nombre} · boleto ${r.boleto} de ${r.cantidad}. ` +
+      `Ya había entrado: ${r.escaneadoEn}.`;
   } else if (r.resultado === 'NO_CONFIRMADO') {
     detalle.textContent = `${r.nombre || ''} — este boleto todavía no está confirmado por staff.`;
   } else {

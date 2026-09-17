@@ -102,38 +102,44 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto }) {
   };
 }
 
-/** Email #3 — al cliente: pago confirmado + QR real (generado por
- *  nosotros, ver lib/qr.js). El PNG también va adjunto al correo:
- *  algunos clientes de correo (p. ej. Gmail) bloquean imágenes
- *  data-URI incrustadas, así que el adjunto es la vía garantizada
- *  para guardar/imprimir el boleto aunque la imagen inline no se vea. */
-function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrDataUrl, titulares }) {
-  // Cuando se compraron 2+ boletos con nombre por persona, se lista
-  // "nombre comprador - nombre boleto persona" debajo del QR (ver
-  // POST /api/confirmar en server.js, que arma este arreglo a partir de
-  // la columna NombresBoletos). El acceso sigue siendo un solo QR por
-  // folio — esto es solo para que cada quien sepa cuál boleto es suyo.
-  const listaTitulares = (titulares && titulares.length)
-    ? `<div style="margin-top:14px;text-align:left">
-         <p style="color:${ROSA};margin:0 0 6px;font-size:12px"><b>Boletos a nombre de:</b></p>
-         <ul style="margin:0;padding-left:18px;color:#f2f2f2;font-size:13px;line-height:1.7">
-           ${titulares.map(t => `<li>${t}</li>`).join('')}
-         </ul>
-       </div>`
-    : '';
+/** Email #3 — al cliente: pago confirmado + UN QR POR BOLETO (generados
+ *  por nosotros, ver lib/qr.js / generarQrsPorPersona). Cada boleto de
+ *  la compra (el comprador + cada invitado con nombre, ver
+ *  NombresBoletos) tiene su PROPIO código: así cada quien puede entrar
+ *  por separado, presentando solo su parte del correo, en vez de
+ *  depender de un único QR compartido para todo el grupo.
+ *
+ *  `boletos` (obligatorio): arreglo ya armado en server.js, en el mismo
+ *  orden que se guardó en el Sheet: [{ nombreBoleto, codigo, qrDataUrl }, ...],
+ *  boleto[0] siempre es quien compró.
+ *
+ *  El PNG de cada boleto también va adjunto al correo (uno por persona):
+ *  algunos clientes de correo (p. ej. Gmail) bloquean imágenes data-URI
+ *  incrustadas, así que el adjunto es la vía garantizada para
+ *  guardar/imprimir cada boleto aunque la imagen inline no se vea. */
+function plantillaConfirmacion({ folio, nombre, cantidad, boletos }) {
+  const esGrupo = boletos.length > 1; // 2+ boletos: cada uno necesita su etiqueta para saber cuál es cuál
+  const bloques = boletos.map((b, i) => `
+    <div style="margin-top:${i === 0 ? 14 : 22}px;padding-top:${i === 0 ? 0 : 18}px;
+                ${i === 0 ? '' : 'border-top:1px dashed #333;'}text-align:center">
+      ${esGrupo ? `<p style="color:${ROSA};margin:0 0 8px;font-size:13px;text-align:left">
+        <b>Boleto ${i + 1} de ${boletos.length} — ${b.nombreBoleto}</b></p>` : ''}
+      <div style="background:#fff;padding:16px;border-radius:8px;text-align:center">
+        <img src="${b.qrDataUrl}" alt="QR boleto ${i + 1} — ${b.nombreBoleto}" width="200" height="200"><br>
+        <code style="color:${ROSA};font-size:12px">${b.codigo}</code>
+      </div>
+    </div>`).join('');
   return {
     subject: `✔ Pago confirmado — tu acceso ${folio}`,
     html: wrap(`
       <p>¡Listo, <b>${nombre}</b>! Tu pago fue confirmado.</p>
-      <p>Este es tu acceso para <b>${cantidad} boleto(s)</b>. Preséntalo en la entrada
-      (esta imagen o el PNG adjunto a este correo):</p>
-      <div style="background:#fff;padding:16px;border-radius:8px;text-align:center">
-        <img src="${qrDataUrl}" alt="QR ${codigoQr}" width="220" height="220"><br>
-        <code style="color:${ROSA};font-size:13px">${codigoQr}</code>
-      </div>
-      ${listaTitulares}
-      <p style="color:#ffe066">⚠ El QR es personal e intransferible: la entrada solo
-      se valida la primera vez que se escanea. No lo compartas en redes.</p>`),
+      <p>Este es tu acceso para <b>${cantidad} boleto(s)</b>${esGrupo
+        ? ' — cada boleto tiene su propio código, uno por persona. Cada quien presenta el suyo en la entrada (esta imagen o el PNG adjunto a este correo con su nombre):'
+        : '. Preséntalo en la entrada (esta imagen o el PNG adjunto a este correo):'}</p>
+      ${bloques}
+      <p style="color:#ffe066;margin-top:20px">⚠ ${esGrupo ? 'Cada código' : 'El código'} es personal e
+      intransferible: la entrada solo se valida la primera vez que se escanea
+      ese código.${esGrupo ? ' No los compartas en redes, ni siquiera entre tus propios invitados.' : ' No lo compartas en redes.'}</p>`),
   };
 }
 

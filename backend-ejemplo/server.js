@@ -21,7 +21,7 @@ const bcrypt    = require('bcryptjs');
 
 const g      = require('./lib/google');
 const brevo  = require('./lib/brevo');
-const { generarQr } = require('./lib/qr');
+const { generarQrsPorPersona } = require('./lib/qr');
 const sesion = require('./lib/sesion');
 const { precioVigente } = require('./lib/precio');
 const { validarCompra, detectarImagen, sanitizeServer, validarNombresExtra } = require('./lib/validacion');
@@ -113,6 +113,40 @@ function descifrar(blob) {
 
 function ahora() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Mexico_City' }).slice(0, 16);
+}
+
+/** Parsea un campo del Sheet que debería ser un arreglo JSON (nombres de
+ *  boletos extra, códigos QR por persona, marcas de escaneo por persona).
+ *  Nunca truena: si el valor está vacío devuelve []; si es JSON pero no un
+ *  arreglo, también []. Si NO es JSON válido pero SÍ trae algo (dato
+ *  viejo de antes de que CodigoQR/EscaneadoEn fueran arreglos — un solo
+ *  código o una sola fecha en texto plano), lo envuelve como arreglo de
+ *  un elemento en vez de perderlo: así una compra confirmada con el
+ *  formato anterior (un QR por folio) se sigue pudiendo escanear como su
+ *  "boleto 1", en vez de quedar huérfana. */
+function parseArr(valor) {
+  if (!valor) return [];
+  try {
+    const arr = JSON.parse(valor);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return [valor]; }
+}
+
+/** Arma [nombreBoleto1, nombreBoleto2, ...] para una compra: el boleto 1
+ *  siempre es quien compró ("nombre"); el resto sale de la columna
+ *  NombresBoletos (JSON) si su longitud cuadra con cantidad-1, o se
+ *  rellena con "Invitado N" si falta o no cuadra (dato viejo, o el
+ *  cliente no mandó nombresExtra porque no tiene JS — ver
+ *  lib/validacion.js). Se usa tanto al confirmar (para imprimir el
+ *  nombre en cada QR) como al escanear (para que el staff vea SIEMPRE el
+ *  mismo nombre que se imprimió en ese boleto) — una sola fuente de
+ *  verdad para no mostrar dos nombres distintos para la misma persona. */
+function nombresPorBoletoDe(compra) {
+  const cantidadNum = +compra.cantidad || 1;
+  let extra = parseArr(compra.nombresBoletos);
+  if (extra.length !== cantidadNum - 1) extra = [];
+  while (extra.length < cantidadNum - 1) extra.push(`Invitado ${extra.length + 2}`);
+  return [compra.nombre, ...extra];
 }
 
 /* ───────────── 4. Endpoints públicos ───────────── */
@@ -289,16 +323,22 @@ app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
       // Nombre por boleto (2+ boletos) para que el staff pueda verificarlos
       // antes de confirmar. Ver POST /api/compras: se guarda como JSON en
       // la columna NombresBoletos; si viniera corrupto, se omite sin tronar.
-      let nombresBoletos = [];
-      try { nombresBoletos = c.nombresBoletos ? JSON.parse(c.nombresBoletos) : []; } catch { /* se omite */ }
+      const nombresBoletos = parseArr(c.nombresBoletos);
+      // Desde que hay un QR por persona (ver POST /api/confirmar), Escaneado
+      // En es un arreglo JSON paralelo a [nombre, ...nombresBoletos]: cada
+      // posición es '' (no ha entrado) o la fecha/hora de su entrada. Un
+      // registro viejo o aún sin confirmar puede no traer nada — se
+      // normaliza a un arreglo del largo correcto, todo vacío.
+      const cantidadNum = +c.cantidad || 0;
+      const escaneos = parseArr(c.escaneadoEn);
+      while (escaneos.length < cantidadNum) escaneos.push('');
       return {
         folio: c.folio, fecha: c.fecha, nombre: c.nombre, email: c.email,
-        whatsapp: c.whatsapp, cantidad: +c.cantidad || 0, monto: +c.monto || 0,
+        whatsapp: c.whatsapp, cantidad: cantidadNum, monto: +c.monto || 0,
         clabe: c.clabeCifrada ? descifrar(c.clabeCifrada) : '',
         estado: c.estado,
         validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
-        escaneadoEn: c.escaneadoEn || '',
-        nombresBoletos,
+        nombresBoletos, escaneos,
       };
     }));
   } catch (err) {
@@ -320,46 +360,50 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
     if (!compra) return res.status(404).json({ error: 'Folio no encontrado' });
     if (compra.estado === 'CONFIRMADO') return res.status(409).json({ error: 'Ya estaba confirmado' });
 
-    // QR real: lo generamos nosotros (lib/qr.js, librería `qrcode`),
-    // sin depender de ningún servicio externo.
-    const { codigo, pngBuffer } = await generarQr(folio);
-    const qrDataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
-
-    // Cuando se compraron 2+ boletos con nombre por persona (ver
-    // POST /api/compras), arma la lista "nombre comprador - nombre
-    // boleto persona" para mostrarla junto al QR. El boleto 1 siempre es
-    // el comprador; el resto viene de la columna NombresBoletos (JSON).
+    // Un QR POR PERSONA, no uno solo por compra: cada invitado puede
+    // entrar por separado presentando SOLO su parte del correo. Boleto 1
+    // siempre es quien compró ("nombre"); el resto sale de la columna
+    // NombresBoletos, con relleno "Invitado N" si falta (ver
+    // nombresPorBoletoDe arriba) — el acceso sigue funcionando igual,
+    // solo que sin el nombre real de esa persona. Ese MISMO relleno es el
+    // que POST /api/escanear vuelve a calcular después, para que el
+    // staff siempre vea el nombre que se imprimió en ese QR.
     const cantidadNum = +compra.cantidad || 1;
-    let titulares = [];
-    if (cantidadNum >= 2 && compra.nombresBoletos) {
-      try {
-        const nombresBoletos = JSON.parse(compra.nombresBoletos);
-        if (Array.isArray(nombresBoletos) && nombresBoletos.length === cantidadNum - 1) {
-          titulares = [
-            `${compra.nombre} (boleto 1)`,
-            ...nombresBoletos.map((n, i) => `${compra.nombre} - ${n} (boleto ${i + 2})`),
-          ];
-        }
-      } catch { /* JSON corrupto en el Sheet: se omite la lista, el QR sigue funcionando */ }
-    }
+    const nombresPorBoleto = nombresPorBoletoDe(compra); // largo === cantidadNum
+
+    const qrs = await generarQrsPorPersona(folio, cantidadNum); // [{ codigo, pngBuffer }, ...]
+    const boletos = qrs.map((qr, i) => ({
+      nombreBoleto: nombresPorBoleto[i],
+      codigo: qr.codigo,
+      qrDataUrl: `data:image/png;base64,${qr.pngBuffer.toString('base64')}`,
+    }));
 
     await brevo.enviarCorreo({
       to: compra.email,
-      ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre,
-        cantidad: compra.cantidad, codigoQr: codigo, qrDataUrl, titulares }),
+      ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre, cantidad: compra.cantidad, boletos }),
       // Brevo no soporta imágenes inline (cid) en su API, así que además
       // del <img> con data-URI (best-effort según el cliente de correo)
-      // el PNG va adjunto como archivo — el cliente siempre puede
-      // guardarlo/imprimirlo aunque el correo no muestre la imagen inline.
-      attachment: [{ name: `boleto-${folio}.png`, content: pngBuffer.toString('base64') }],
+      // cada PNG va adjunto como archivo aparte, nombrado con el número de
+      // boleto — el cliente siempre puede guardarlo/imprimirlo aunque el
+      // correo no muestre las imágenes inline.
+      attachment: qrs.map((qr, i) => ({
+        name: `boleto-${folio}-${i + 1}.png`,
+        content: qr.pngBuffer.toString('base64'),
+      })),
     });
 
     await g.actualizarCompra(folio, {
       estado: 'CONFIRMADO', validado: ahora(),
-      codigoQr: codigo, qrEnviado: 'SI', emailConfirmacion: 'SI',
+      // Un arreglo JSON con un código por boleto (antes era un solo string
+      // con un único código para toda la compra). EscaneadoEn arranca como
+      // un arreglo del mismo largo, todo vacío ("nadie ha entrado
+      // todavía") — POST /api/escanear marca UNA sola posición a la vez.
+      codigoQr: JSON.stringify(qrs.map(qr => qr.codigo)),
+      escaneadoEn: JSON.stringify(new Array(cantidadNum).fill('')),
+      qrEnviado: 'SI', emailConfirmacion: 'SI',
     });
 
-    res.json({ ok: true, folio, codigoQr: codigo });
+    res.json({ ok: true, folio, codigos: qrs.map(qr => qr.codigo) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'No se pudo confirmar.' });
@@ -368,14 +412,26 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
 
 /** Escaneo de acceso en la puerta: valida el código del QR y lo marca
  *  como usado (una sola vez) para evitar reingresos con captura de
- *  pantalla del mismo boleto. Requiere sesión de staff. */
+ *  pantalla del mismo boleto. Requiere sesión de staff.
+ *
+ *  Desde que hay UN QR POR PERSONA (ver POST /api/confirmar), CodigoQR
+ *  guarda un arreglo JSON con un código por boleto de la compra, y
+ *  EscaneadoEn otro arreglo paralelo con la marca de cada uno. Escanear
+ *  el código de un invitado NO consume el de los demás: cada quien entra
+ *  por separado, en el orden que sea. */
 app.post('/api/escanear', sesion.requiereSesion, limiterEscaneo, express.json(), async (req, res) => {
   try {
     const codigoQr = sanitizeServer(req.body.codigoQr).slice(0, 100);
     if (!codigoQr) return res.status(400).json({ error: 'Código vacío', resultado: 'ERROR' });
 
     const compras = await g.listarCompras();
-    const compra = compras.find(c => c.codigoQr === codigoQr);
+    let compra = null;
+    let indice = -1;
+    for (const c of compras) {
+      const codigos = parseArr(c.codigoQr);
+      const i = codigos.indexOf(codigoQr);
+      if (i !== -1) { compra = c; indice = i; break; }
+    }
 
     if (!compra) {
       return res.status(404).json({ error: 'Código no reconocido', resultado: 'NO_ENCONTRADO' });
@@ -384,18 +440,31 @@ app.post('/api/escanear', sesion.requiereSesion, limiterEscaneo, express.json(),
       return res.status(409).json({ error: 'Este boleto no está confirmado', resultado: 'NO_CONFIRMADO',
         folio: compra.folio, nombre: compra.nombre });
     }
-    if (compra.escaneadoEn) {
-      // Ya se usó: NO se vuelve a marcar. Se informa la fecha/hora del
-      // primer ingreso para que el staff decida (posible reingreso o
-      // captura de pantalla compartida).
+
+    const cantidadNum = +compra.cantidad || 1;
+    // Mismo cálculo que en /api/confirmar (nombresPorBoletoDe): así el
+    // nombre que ve el staff aquí es SIEMPRE el mismo que se imprimió en
+    // el QR de esa persona, "Invitado N" incluido cuando aplica.
+    const nombreTitular = nombresPorBoletoDe(compra)[indice] || `${compra.nombre} (boleto ${indice + 1})`;
+
+    const escaneos = parseArr(compra.escaneadoEn);
+    while (escaneos.length < cantidadNum) escaneos.push('');
+
+    if (escaneos[indice]) {
+      // Ya se usó ESTE código: NO se vuelve a marcar. Se informa la
+      // fecha/hora del ingreso para que el staff decida (posible
+      // reingreso o captura de pantalla compartida). El resto de los
+      // boletos de la misma compra, si los hay, siguen sin usarse.
       return res.status(409).json({ error: 'Este boleto YA FUE ESCANEADO', resultado: 'YA_USADO',
-        folio: compra.folio, nombre: compra.nombre, cantidad: +compra.cantidad || 0,
-        escaneadoEn: compra.escaneadoEn });
+        folio: compra.folio, nombre: nombreTitular, boleto: indice + 1, cantidad: cantidadNum,
+        escaneadoEn: escaneos[indice] });
     }
 
-    await g.actualizarCompra(compra.folio, { escaneadoEn: ahora() });
-    res.json({ ok: true, resultado: 'OK', folio: compra.folio, nombre: compra.nombre,
-      cantidad: +compra.cantidad || 0 });
+    escaneos[indice] = ahora();
+    await g.actualizarCompra(compra.folio, { escaneadoEn: JSON.stringify(escaneos) });
+
+    res.json({ ok: true, resultado: 'OK', folio: compra.folio, nombre: nombreTitular,
+      boleto: indice + 1, cantidad: cantidadNum, escaneados: escaneos.filter(Boolean).length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'No se pudo validar el escaneo.', resultado: 'ERROR' });

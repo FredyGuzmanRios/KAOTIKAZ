@@ -23,10 +23,13 @@ Tú entras a /admin.html → ves PENDIENTES (leídos del Sheet)
         └─ RECHAZAR  → Brevo → email con motivo, Sheet pasa a RECHAZADO
 
 En la puerta: staff entra a /escaneo.html (mismo login) → apunta la
-cámara al QR del correo → POST /api/escanear lo valida contra el
-Sheet y lo marca como usado (columna EscaneadoEn) — si alguien
-intenta re-entrar con una captura de pantalla del mismo boleto, el
-staff ve "YA FUE ESCANEADO" con la hora del primer ingreso.
+cámara a CUALQUIERA de los QR del correo (uno por persona, no uno solo
+por compra) → POST /api/escanear lo valida contra el Sheet y marca
+SOLO ese boleto como usado (columna EscaneadoEn, un arreglo con una
+marca por persona) — si alguien intenta re-entrar con una captura de
+pantalla de un boleto ya usado, el staff ve "YA FUE ESCANEADO" con la
+hora del primer ingreso; el resto de los boletos de esa misma compra,
+si los hay, siguen sin usarse y cada quien puede entrar por separado.
 ```
 
 El Google Sheet es la única "base de datos". Puedes abrirlo desde cualquier lado y ver en vivo: quién se registró, si se le mandó cada correo (`EmailRegistro`, `EmailConfirmacion`), su código QR (`CodigoQR`) y si ya se le envió (`QREnviado`).
@@ -46,12 +49,12 @@ El Google Sheet es la única "base de datos". Puedes abrirlo desde cualquier lad
 | I | ComprobanteURL | link a Drive |
 | J | Estado | PENDIENTE / CONFIRMADO / RECHAZADO |
 | K | FechaValidado | 2026-07-05 19:02 |
-| L | CodigoQR | KTZ-K-483920-A1B2C3D4 |
+| L | CodigoQR | `["KTZ-K-483920-1-A1B2C3D4","KTZ-K-483920-2-E5F6A7B8"]` (JSON; un código por boleto, no uno solo por compra) |
 | M | QREnviado | SI / NO |
 | N | EmailRegistro | SI / NO |
 | O | EmailConfirmacion | SI / NO |
 | P | Notas | motivo de rechazo, etc. |
-| Q | EscaneadoEn | 2026-07-05 21:14 (vacío = todavía no entra) |
+| Q | EscaneadoEn | `["2026-07-05 21:14",""]` (JSON; un valor por boleto, en el mismo orden que CodigoQR — vacío = esa persona todavía no entra) |
 | R | NombresBoletos | `["Luis Torres","Marta Díaz"]` (JSON; solo si se compraron 2+ boletos) |
 
 **El precio ya NO se controla desde la hoja "Config"** (ese mecanismo se
@@ -189,44 +192,60 @@ El honeypot ya frena bots básicos; Turnstile frena los sofisticados. Es gratis 
 
 Comportamiento: si las variables están vacías, el sitio funciona **sin** captcha (modo dev). Con las llaves puestas, el widget aparece en el paso 2 del formulario y el servidor rechaza cualquier compra sin token válido.
 
-## 10. QR real y escaneo de acceso en la puerta
+## 10. QR real y escaneo de acceso en la puerta — UN QR POR PERSONA
 
 - El QR ya NO lo genera un servicio externo: `lib/qr.js` usa la librería
-  `qrcode` (npm) para dibujar el PNG en el propio servidor. Se manda
-  **incrustado** en el correo (`<img>` con data-URI — no todos los
-  clientes de correo lo muestran, Gmail a veces bloquea imágenes
-  data-URI) y **siempre adjunto** como `boleto-<folio>.png`, así el
-  cliente lo puede guardar/imprimir aunque el correo no lo muestre inline.
+  `qrcode` (npm) para dibujar el PNG en el propio servidor.
+- **Desde que se agregó el nombre por boleto, cada boleto de la compra
+  tiene su PROPIO código QR** — no uno solo compartido para toda la
+  compra. Si alguien compra 3 boletos (el comprador + 2 invitados con
+  nombre), el correo de confirmación trae **3 bloques separados**, cada
+  uno con el nombre de esa persona arriba de su propio QR (`lib/qr.js` →
+  `generarQrsPorPersona`, `lib/brevo.js` → `plantillaConfirmacion`). Cada
+  QR también va **adjunto** al correo como `boleto-<folio>-<N>.png`, así
+  cada quien puede guardar/imprimir solo el suyo.
 - `/escaneo.html` (link "📷 ESCANEAR ACCESOS" desde `/admin.html`) usa la
   cámara del celular del staff para leer el QR — la decodificación pasa
   100% en el navegador con la librería `jsQR` (cargada desde jsDelivr,
   agregado a la Content-Security-Policy del backend); ninguna imagen
   viaja a un servidor externo.
 - Al escanear, `POST /api/escanear` (requiere sesión de staff) busca el
-  código en el Sheet: si no existe o el boleto no está `CONFIRMADO`,
-  avisa; si ya tiene `EscaneadoEn`, avisa "YA FUE ESCANEADO" con la hora
-  del primer ingreso (para detectar reingresos con captura de pantalla);
-  si es válido y es la primera vez, marca `EscaneadoEn = ahora()` y deja
-  pasar. El QR representa el **folio completo** (no boleto por boleto):
-  si alguien compró 3 boletos, un solo escaneo marca las 3 entradas.
-- Cuando se compran 2 o más boletos, el formulario pide el nombre de
-  cada persona (columna `NombresBoletos`, ver arriba) y el correo de
-  confirmación con el QR lista "nombre comprador - nombre boleto
-  persona" para cada uno, aunque el acceso sigue siendo un solo QR por
-  folio.
+  código dentro del arreglo `CodigoQR` de CADA compra hasta encontrar en
+  cuál aparece, y en qué posición (qué persona es). Si no existe en
+  ninguna, o el boleto no está `CONFIRMADO`, avisa; si la posición de
+  `EscaneadoEn` de esa persona ya tiene fecha, avisa "YA FUE ESCANEADO"
+  con la hora de su ingreso (para detectar reingresos con captura de
+  pantalla); si es válido y es la primera vez, marca SOLO esa posición
+  del arreglo y deja pasar. **Cada persona entra por separado**: escanear
+  el QR de un invitado no consume ni afecta el de los demás boletos de la
+  misma compra — pueden llegar en momentos distintos, por puertas
+  distintas, o directamente no venir sin bloquear a los demás.
+- El panel de staff (`/admin.html`) refleja esto: la pestaña Confirmados
+  muestra "X/Y entraron" (ámbar mientras falta alguien, verde cuando ya
+  entró todo el grupo) y el modal de cada caso lista boleto por boleto
+  quién ya entró y a qué hora.
 - Limitación conocida: como el Sheet no es una base transaccional, dos
-  puertas escaneando el mismo código en el mismo instante podrían, en
+  puertas escaneando el MISMO código en el mismo instante podrían, en
   teoría, dejar pasar ambas antes de que la primera escritura se refleje.
   Para un solo punto de acceso (lo normal en un evento de este tamaño)
   no es un problema real.
+- **Compatibilidad con confirmaciones viejas**: si un folio se confirmó
+  ANTES de este cambio (con el QR único de un solo código de texto plano
+  en vez de un arreglo JSON), `POST /api/escanear` sigue soportándolo:
+  al no poder interpretarse como JSON, ese código se trata como un
+  arreglo de un solo elemento. Ese boleto viejo se sigue pudiendo
+  escanear una vez con normalidad, nada más no se puede "partir" en
+  varios accesos independientes porque nunca se guardó así.
 - **Antes de desplegar:** `cd backend-ejemplo && npm install` (agrega
   `qrcode` y sube `multer` a 2.x), y probar el flujo completo: confirmar
-  un registro de prueba → revisar que llegue el correo con el QR
-  adjunto → abrir `/escaneo.html` desde un celular y escanear ese QR
-  (contra la URL real desplegada, por HTTPS — la cámara del navegador
-  exige contexto seguro; `http://localhost` también cuenta como seguro
-  para pruebas locales). Esto no se pudo probar de punta a punta en el
-  entorno donde se generó este cambio.
+  un registro de prueba de 2+ boletos con nombre → revisar que lleguen
+  los QR separados por persona en el correo → abrir `/escaneo.html` desde
+  un celular y escanear cada QR por separado, confirmando que uno no
+  bloquea al otro (contra la URL real desplegada, por HTTPS — la cámara
+  del navegador exige contexto seguro; `http://localhost` también cuenta
+  como seguro para pruebas locales). Verificado en este entorno con el
+  servidor real corriendo contra dobles en memoria de Sheets/Brevo
+  (Playwright, sin cámara real todavía — ver la nota del punto anterior).
 
 ## 11. Notas de seguridad ya implementadas
 

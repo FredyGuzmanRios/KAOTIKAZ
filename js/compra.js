@@ -105,6 +105,41 @@ function arrancarReloj(){
   }, 1000);
 }
 
+/* ---------- Nombre por boleto (2 o mas boletos) ----------
+   El boleto 1 ya tiene dueno (el campo "Nombre completo" de quien
+   compra). Desde 2 boletos en adelante se agrega, con el MISMO estilo
+   que ese campo (reutiliza la clase .campo tal cual), uno mas por cada
+   boleto extra -- asi el correo de confirmacion puede mandar el QR con
+   "nombre comprador - nombre boleto persona" para cada quien. */
+function renderNombresExtra(){
+  const cont = $('nombresExtra');
+  const necesarios = cant >= 2 ? cant - 1 : 0;
+  const actuales = cont.querySelectorAll('.campo-boleto').length;
+  if (actuales === necesarios) return; // ya estan armados: no perder lo ya escrito
+  cont.innerHTML = '';
+  for (let i = 2; i <= cant; i++){
+    const div = document.createElement('div');
+    div.className = 'campo campo-boleto';
+    div.innerHTML =
+      '<label for="nombreBoleto' + i + '">Nombre boleto ' + i + '</label>' +
+      '<input type="text" id="nombreBoleto' + i + '" maxlength="80" placeholder="asi va en su boleto" autocomplete="off">' +
+      '<p class="err">SOLO LETRAS Y ESPACIOS (3 A 80)</p>';
+    cont.appendChild(div);
+  }
+}
+function checkNombresExtra(){
+  let ok = true;
+  for (let i = 2; i <= cant; i++){
+    const el = $('nombreBoleto' + i);
+    if (!el) { ok = false; continue; }
+    const campo = el.closest('.campo');
+    const valido = V.nombre(cleanField(el.value, 80));
+    campo.classList.toggle('invalid', !valido);
+    if (!valido) ok = false;
+  }
+  return ok;
+}
+
 document.querySelectorAll('#pad .tecla[data-qty]').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('#pad .tecla[data-qty]').forEach(x => x.classList.remove('sel'));
@@ -112,13 +147,14 @@ document.querySelectorAll('#pad .tecla[data-qty]').forEach(t => {
     setTimeout(() => t.classList.remove('press'), 120);
     cant = parseInt(t.dataset.qty, 10);
     pintar();
+    renderNombresExtra();
     setEstado('TONO', cant + ' BOLETO(S) EN LA LINEA');
   });
 });
 $('keyClear').addEventListener('click', () => {
   cant = 0;
   document.querySelectorAll('#pad .tecla[data-qty]').forEach(x => x.classList.remove('sel'));
-  pintar(); setEstado('TONO', 'MARCA CUANTOS BOLETOS QUIERES');
+  pintar(); renderNombresExtra(); setEstado('TONO', 'MARCA CUANTOS BOLETOS QUIERES');
 });
 
 /* Sanitizacion en el cliente: primera linea de defensa (UX).
@@ -183,7 +219,9 @@ $('btnVolver1').addEventListener('click', () => {
 
 /* MARCANDO -> EN LINEA */
 $('btnPago').addEventListener('click', () => {
-  if (!['nombre','email','whats'].map(check).every(Boolean)){
+  const camposBase = ['nombre','email','whats'].map(check).every(Boolean);
+  const camposExtra = checkNombresExtra();
+  if (!camposBase || !camposExtra){
     setEstado('ERROR', 'REVISA LOS CAMPOS MARCADOS'); return;
   }
   $('cpMonto').textContent = '$' + money(cant * unit()) + ' MXN';
@@ -235,6 +273,12 @@ $('form').addEventListener('submit', async e => {
     data.append('comprobante', $('comp').files[0]);
     data.append('website', $('hp').value); // honeypot anti-bots
 
+    if (cant >= 2){
+      const nombresExtra = [];
+      for (let i = 2; i <= cant; i++) nombresExtra.push(cleanField($('nombreBoleto' + i).value, 80));
+      data.append('nombresExtra', JSON.stringify(nombresExtra));
+    }
+
     if (turnstileActivo){
       const token = window.turnstile ? window.turnstile.getResponse() : '';
       if (!token) throw new Error('Completa la verificacion anti-bot antes de enviar.');
@@ -256,7 +300,7 @@ $('form').addEventListener('submit', async e => {
     clearInterval(timer);
     const folio = json.folio;
     $('rFolio').textContent = 'FOLIO ' + folio;
-    $('rEstado').textContent = 'RECIBIDO';
+    $('rEstado').textContent = 'PENDIENTE CONFIRMACION';
     $('sello').classList.add('on');
     document.querySelector('.ticket-zona').classList.add('lista');
     document.querySelector('.ticket-zona').scrollIntoView({behavior:'smooth', block:'start'});
@@ -265,7 +309,7 @@ $('form').addEventListener('submit', async e => {
     let extra = '';
     if (json.waLink){
       extra = '<a href="' + json.waLink + '" target="_blank" rel="noopener" class="llamar" ' +
-        'style="display:inline-block;text-decoration:none;margin-top:16px">AVISANOS POR WHATSAPP (1 TAP)</a>';
+        'style="display:inline-block;text-decoration:none;margin-top:16px;text-align:center">AVISANOS POR WHATSAPP (1 TAP)</a>';
     }
     $('form').innerHTML =
       '<p class="hint" style="text-align:center;font-size:10px;line-height:2.2;margin-top:18px">' +

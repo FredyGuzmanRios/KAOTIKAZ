@@ -24,7 +24,7 @@ const brevo  = require('./lib/brevo');
 const { generarQr } = require('./lib/qr');
 const sesion = require('./lib/sesion');
 const { precioVigente } = require('./lib/precio');
-const { validarCompra, detectarImagen, sanitizeServer } = require('./lib/validacion');
+const { validarCompra, detectarImagen, sanitizeServer, validarNombresExtra } = require('./lib/validacion');
 const { hashAdminVigente, RE_BCRYPT } = require('./lib/auth');
 
 const app = express();
@@ -151,6 +151,13 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
     // Tipo REAL del archivo por contenido, no por MIME declarado
     const tipoReal = req.file ? detectarImagen(req.file.buffer) : null;
     if (!tipoReal) errores.push('comprobante');
+
+    // Nombre de cada boleto cuando se compran 2 o más (boleto 1 = el
+    // comprador, "nombre"). Opcional a nivel servidor (ver el comentario
+    // grande en lib/validacion.js) — el frontend sí lo exige.
+    const nombresExtra = validarNombresExtra(limpio.cantidad, req.body.nombresExtra);
+    if (!nombresExtra.ok) errores.push('nombresExtra');
+
     if (errores.length) return res.status(400).json({ error: 'Campos inválidos', campos: errores });
 
     // CAPTCHA (Cloudflare Turnstile) — activo solo si hay secret configurado
@@ -188,6 +195,9 @@ app.post('/api/compras', limiterCompras, upload.single('comprobante'), async (re
       // comprobante: se queda vacía a propósito (ver nota de arriba).
       comprobante: '', estado: 'PENDIENTE',
       qrEnviado: 'NO', emailRegistro: 'NO', emailConfirmacion: 'NO',
+      // Nombre de cada persona cuando se compran 2+ boletos (boleto 1 =
+      // "nombre", arriba). Se guarda como JSON; vacío si no aplica.
+      nombresBoletos: nombresExtra.nombres.length ? JSON.stringify(nombresExtra.nombres) : '',
     });
 
     // 2. Correos (si Brevo falla, la compra YA quedó registrada)
@@ -275,14 +285,22 @@ app.get('/api/compras', sesion.requiereSesion, async (req, res) => {
   try {
     const compras = await g.listarCompras();
     // La CLABE solo se descifra para staff autenticado
-    res.json(compras.map(c => ({
-      folio: c.folio, fecha: c.fecha, nombre: c.nombre, email: c.email,
-      whatsapp: c.whatsapp, cantidad: +c.cantidad || 0, monto: +c.monto || 0,
-      clabe: c.clabeCifrada ? descifrar(c.clabeCifrada) : '',
-      estado: c.estado,
-      validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
-      escaneadoEn: c.escaneadoEn || '',
-    })));
+    res.json(compras.map(c => {
+      // Nombre por boleto (2+ boletos) para que el staff pueda verificarlos
+      // antes de confirmar. Ver POST /api/compras: se guarda como JSON en
+      // la columna NombresBoletos; si viniera corrupto, se omite sin tronar.
+      let nombresBoletos = [];
+      try { nombresBoletos = c.nombresBoletos ? JSON.parse(c.nombresBoletos) : []; } catch { /* se omite */ }
+      return {
+        folio: c.folio, fecha: c.fecha, nombre: c.nombre, email: c.email,
+        whatsapp: c.whatsapp, cantidad: +c.cantidad || 0, monto: +c.monto || 0,
+        clabe: c.clabeCifrada ? descifrar(c.clabeCifrada) : '',
+        estado: c.estado,
+        validado: c.validado, qrEnviado: c.qrEnviado === 'SI',
+        escaneadoEn: c.escaneadoEn || '',
+        nombresBoletos,
+      };
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'No se pudo leer el registro.' });
@@ -307,10 +325,28 @@ app.post('/api/confirmar', sesion.requiereSesion, express.json(), async (req, re
     const { codigo, pngBuffer } = await generarQr(folio);
     const qrDataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
 
+    // Cuando se compraron 2+ boletos con nombre por persona (ver
+    // POST /api/compras), arma la lista "nombre comprador - nombre
+    // boleto persona" para mostrarla junto al QR. El boleto 1 siempre es
+    // el comprador; el resto viene de la columna NombresBoletos (JSON).
+    const cantidadNum = +compra.cantidad || 1;
+    let titulares = [];
+    if (cantidadNum >= 2 && compra.nombresBoletos) {
+      try {
+        const nombresBoletos = JSON.parse(compra.nombresBoletos);
+        if (Array.isArray(nombresBoletos) && nombresBoletos.length === cantidadNum - 1) {
+          titulares = [
+            `${compra.nombre} (boleto 1)`,
+            ...nombresBoletos.map((n, i) => `${compra.nombre} - ${n} (boleto ${i + 2})`),
+          ];
+        }
+      } catch { /* JSON corrupto en el Sheet: se omite la lista, el QR sigue funcionando */ }
+    }
+
     await brevo.enviarCorreo({
       to: compra.email,
       ...brevo.plantillaConfirmacion({ folio, nombre: compra.nombre,
-        cantidad: compra.cantidad, codigoQr: codigo, qrDataUrl }),
+        cantidad: compra.cantidad, codigoQr: codigo, qrDataUrl, titulares }),
       // Brevo no soporta imágenes inline (cid) en su API, así que además
       // del <img> con data-URI (best-effort según el cliente de correo)
       // el PNG va adjunto como archivo — el cliente siempre puede

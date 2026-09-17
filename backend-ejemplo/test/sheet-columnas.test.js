@@ -39,10 +39,11 @@ const ETIQUETA_ESPERADA = {
   emailConfirmacion: 'EmailConfirmacion',
   notas: 'Notas',
   escaneadoEn: 'EscaneadoEn',
+  nombresBoletos: 'NombresBoletos',
 };
 
-test('COLS (lib/google.js) y ENCABEZADOS (scripts/init-sheet.js) tienen las mismas 17 columnas, en el mismo orden', () => {
-  assert.equal(COLS.length, 17);
+test('COLS (lib/google.js) y ENCABEZADOS (scripts/init-sheet.js) tienen las mismas 18 columnas, en el mismo orden', () => {
+  assert.equal(COLS.length, 18);
   assert.equal(ENCABEZADOS.length, COLS.length);
   assert.deepEqual(COLS.map(clave => ETIQUETA_ESPERADA[clave]), ENCABEZADOS);
 });
@@ -53,9 +54,9 @@ test('cada clave de COLS tiene una etiqueta de encabezado definida (nadie se que
   }
 });
 
-test('el rango usado en lib/google.js (A:Q) alcanza exactamente para las 17 columnas', () => {
-  // 17 columnas = A hasta Q (A=1 ... Q=17). Si algún día se agrega una
+test('el rango usado en lib/google.js (A:R) alcanza exactamente para las 18 columnas', () => {
+  // 18 columnas = A hasta R (A=1 ... R=18). Si algún día se agrega una
   // columna sin extender el rango en google.js, esta prueba lo detecta.
   const letraColumna = (n) => String.fromCharCode('A'.charCodeAt(0) + n - 1);
-  assert.equal(letraColumna(COLS.length), 'Q');
+  assert.equal(letraColumna(COLS.length), 'R');
 });

@@ -66,4 +66,50 @@ function detectarImagen(buf) {
   return null;
 }
 
-module.exports = { RULES, CONTROL_CHARS, sanitizeServer, sheetSafe, validarCompra, detectarImagen };
+// Nombre de un boleto individual: mismo formato que el nombre del comprador.
+const NOMBRE_BOLETO_RE = /^[a-záéíóúüñ\s.]{3,80}$/i;
+
+/** Valida los nombres de los boletos adicionales (boleto 2..cantidad) que
+ *  llegan del cliente como un string JSON (arreglo de strings) en el
+ *  campo `nombresExtra` — solo aplica cuando se compran 2 o más boletos,
+ *  para poder mandar el QR de confirmación con "nombre comprador -
+ *  nombre boleto persona" por cada boleto.
+ *
+ *  Es opcional a nivel servidor (a diferencia del comprobante, que sí es
+ *  obligatorio a huevo): si el cliente no lo manda — por ejemplo un
+ *  cliente viejo o sin JS — la compra se sigue guardando igual, nada más
+ *  sin los nombres individuales (el staff puede pedirlos después por
+ *  WhatsApp). El frontend (js/compra.js) SÍ lo exige antes de dejar
+ *  enviar el formulario cuando la cantidad es 2 o más.
+ *
+ *  Devuelve { ok, nombres, error }: `nombres` siempre es un arreglo
+ *  (vacío si no aplica), ya sanitizado y listo para guardar en el Sheet. */
+function validarNombresExtra(cantidad, nombresExtraRaw) {
+  const cant = +cantidad || 0;
+  if (cant < 2 || !nombresExtraRaw) return { ok: true, nombres: [] };
+
+  let arr;
+  try {
+    arr = JSON.parse(nombresExtraRaw);
+  } catch {
+    return { ok: false, nombres: [], error: 'nombresExtra no es JSON válido' };
+  }
+  if (!Array.isArray(arr)) return { ok: false, nombres: [], error: 'nombresExtra debe ser un arreglo' };
+
+  const esperados = cant - 1; // el boleto 1 ya es el comprador (campo "nombre")
+  if (arr.length !== esperados) {
+    return { ok: false, nombres: [], error: `Se esperaban ${esperados} nombre(s) de boleto` };
+  }
+
+  const nombres = arr.map(n => sheetSafe(sanitizeServer(n)));
+  if (nombres.some(n => !NOMBRE_BOLETO_RE.test(n))) {
+    return { ok: false, nombres: [], error: 'Nombre de boleto inválido' };
+  }
+
+  return { ok: true, nombres };
+}
+
+module.exports = {
+  RULES, CONTROL_CHARS, sanitizeServer, sheetSafe, validarCompra, detectarImagen,
+  validarNombresExtra,
+};

@@ -52,6 +52,7 @@ El Google Sheet es la única "base de datos". Puedes abrirlo desde cualquier lad
 | O | EmailConfirmacion | SI / NO |
 | P | Notas | motivo de rechazo, etc. |
 | Q | EscaneadoEn | 2026-07-05 21:14 (vacío = todavía no entra) |
+| R | NombresBoletos | `["Luis Torres","Marta Díaz"]` (JSON; solo si se compraron 2+ boletos) |
 
 **El precio ya NO se controla desde la hoja "Config"** (ese mecanismo se
 quitó: `init-sheet` reescribía `Config!A1:B1` a 400 cada vez que se
@@ -65,10 +66,10 @@ Override de emergencia sin redeploy: define `PRECIO_BOLETO` en las
 variables de entorno de Coolify y reinicia la app — ese valor gana
 sobre la tabla mientras esté definido. Normalmente se deja vacío.
 
-**Si tu Sheet ya existía antes de la columna Q:** vuelve a correr
+**Si tu Sheet ya existía antes de la columna Q o R:** vuelve a correr
 `npm run init-sheet` una vez (con el `.env` de siempre) — solo reescribe
-la fila de encabezados (A1:Q1), no toca ninguna fila de datos, y así
-agrega el encabezado `EscaneadoEn` que falta en Q1.
+la fila de encabezados (A1:R1), no toca ninguna fila de datos, y así
+agrega los encabezados `EscaneadoEn` y `NombresBoletos` que falten.
 
 ## 2. Google (Sheets + Drive) — ~15 min
 
@@ -208,6 +209,11 @@ Comportamiento: si las variables están vacías, el sitio funciona **sin** captc
   si es válido y es la primera vez, marca `EscaneadoEn = ahora()` y deja
   pasar. El QR representa el **folio completo** (no boleto por boleto):
   si alguien compró 3 boletos, un solo escaneo marca las 3 entradas.
+- Cuando se compran 2 o más boletos, el formulario pide el nombre de
+  cada persona (columna `NombresBoletos`, ver arriba) y el correo de
+  confirmación con el QR lista "nombre comprador - nombre boleto
+  persona" para cada uno, aunque el acceso sigue siendo un solo QR por
+  folio.
 - Limitación conocida: como el Sheet no es una base transaccional, dos
   puertas escaneando el mismo código en el mismo instante podrían, en
   teoría, dejar pasar ambas antes de que la primera escritura se refleje.

@@ -38,10 +38,20 @@ async function enviarCorreo({ to, subject, html, attachment }) {
 
 /* ---------- Plantillas ---------- */
 
+// Logo oficial alojado como estático del propio sitio (assets/img/), en
+// rosa de marca sobre fondo oscuro — mismo tratamiento visual que el SVG
+// inline de index.html, pero como PNG: los clientes de correo no confían
+// en <svg> ni en hojas de estilo externas, así que una imagen normal es
+// lo único que se ve igual en todos lados. Se referencia por URL absoluta
+// (no data-URI): es un archivo fijo, así que conviene que se cachee en
+// vez de viajar completo en cada correo.
+const LOGO_URL = 'https://kaotikaz.com/assets/img/kaotikaz-logo-correo.png';
+const ROSA = '#ff2fb3'; // mismo rosa de marca que el resto del sitio ("rosita")
+
 const wrap = (contenido) => `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;
               background:#0d0d1a;color:#f2f2f2;padding:28px;border-radius:12px">
-    <h1 style="color:#ff2fb3;font-size:22px;margin:0 0 4px">KAOTIKAZ</h1>
+    <img src="${LOGO_URL}" alt="KAOTIKAZ" width="180" style="display:block;margin:0 0 6px;border:0">
     <p style="color:#8be9fd;font-size:12px;margin:0 0 20px">// boletera oficial</p>
     ${contenido}
     <p style="color:#666;font-size:11px;margin-top:24px">
@@ -56,7 +66,7 @@ function plantillaRegistro({ folio, nombre, cantidad, monto }) {
     html: wrap(`
       <p>Hola <b>${nombre}</b>, recibimos tu registro:</p>
       <table style="width:100%;color:#f2f2f2;font-size:14px">
-        <tr><td>Folio</td><td><b style="color:#ffe066">${folio}</b></td></tr>
+        <tr><td>Folio</td><td><b style="color:${ROSA}">${folio}</b></td></tr>
         <tr><td>Boletos</td><td>${cantidad}</td></tr>
         <tr><td>Monto</td><td>$${monto} MXN</td></tr>
       </table>
@@ -81,7 +91,7 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto }) {
     html: wrap(`
       <p><b>Nuevo registro pendiente de validar:</b></p>
       <table style="width:100%;color:#f2f2f2;font-size:14px">
-        <tr><td>Folio</td><td><b>${folio}</b></td></tr>
+        <tr><td>Folio</td><td><b style="color:${ROSA}">${folio}</b></td></tr>
         <tr><td>Nombre</td><td>${nombre}</td></tr>
         <tr><td>Email</td><td>${email}</td></tr>
         <tr><td>Boletos</td><td>${cantidad} — $${monto} MXN</td></tr>
@@ -97,7 +107,20 @@ function plantillaAdmin({ folio, nombre, email, whatsapp, cantidad, monto }) {
  *  algunos clientes de correo (p. ej. Gmail) bloquean imágenes
  *  data-URI incrustadas, así que el adjunto es la vía garantizada
  *  para guardar/imprimir el boleto aunque la imagen inline no se vea. */
-function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrDataUrl }) {
+function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrDataUrl, titulares }) {
+  // Cuando se compraron 2+ boletos con nombre por persona, se lista
+  // "nombre comprador - nombre boleto persona" debajo del QR (ver
+  // POST /api/confirmar en server.js, que arma este arreglo a partir de
+  // la columna NombresBoletos). El acceso sigue siendo un solo QR por
+  // folio — esto es solo para que cada quien sepa cuál boleto es suyo.
+  const listaTitulares = (titulares && titulares.length)
+    ? `<div style="margin-top:14px;text-align:left">
+         <p style="color:${ROSA};margin:0 0 6px;font-size:12px"><b>Boletos a nombre de:</b></p>
+         <ul style="margin:0;padding-left:18px;color:#f2f2f2;font-size:13px;line-height:1.7">
+           ${titulares.map(t => `<li>${t}</li>`).join('')}
+         </ul>
+       </div>`
+    : '';
   return {
     subject: `✔ Pago confirmado — tu acceso ${folio}`,
     html: wrap(`
@@ -106,8 +129,9 @@ function plantillaConfirmacion({ folio, nombre, cantidad, codigoQr, qrDataUrl })
       (esta imagen o el PNG adjunto a este correo):</p>
       <div style="background:#fff;padding:16px;border-radius:8px;text-align:center">
         <img src="${qrDataUrl}" alt="QR ${codigoQr}" width="220" height="220"><br>
-        <code style="color:#0d0d1a;font-size:13px">${codigoQr}</code>
+        <code style="color:${ROSA};font-size:13px">${codigoQr}</code>
       </div>
+      ${listaTitulares}
       <p style="color:#ffe066">⚠ El QR es personal e intransferible: la entrada solo
       se valida la primera vez que se escanea. No lo compartas en redes.</p>`),
   };
@@ -118,7 +142,7 @@ function plantillaRechazo({ folio, nombre, motivo }) {
   return {
     subject: `✘ Problema con tu registro ${folio}`,
     html: wrap(`
-      <p>Hola <b>${nombre}</b>, no pudimos validar tu pago del folio <b>${folio}</b>.</p>
+      <p>Hola <b>${nombre}</b>, no pudimos validar tu pago del folio <b style="color:${ROSA}">${folio}</b>.</p>
       <p><b>Motivo:</b> ${motivo}</p>
       <p>Responde este correo o escríbenos por WhatsApp para resolverlo.</p>`),
   };

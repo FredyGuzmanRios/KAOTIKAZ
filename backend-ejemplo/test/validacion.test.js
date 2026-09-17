@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { sanitizeServer, sheetSafe, validarCompra, detectarImagen } = require('../lib/validacion');
+const { sanitizeServer, sheetSafe, validarCompra, detectarImagen, validarNombresExtra } = require('../lib/validacion');
 
 /* ---------- sanitizeServer ---------- */
 
@@ -117,4 +117,45 @@ test('detectarImagen rechaza buffers vacíos, ausentes o demasiado cortos', () =
   assert.equal(detectarImagen(undefined), null);
   assert.equal(detectarImagen(Buffer.alloc(0)), null);
   assert.equal(detectarImagen(Buffer.from([0x89, 0x50, 0x4e])), null); // PNG truncado
+});
+
+/* ---------- validarNombresExtra (nombre por boleto, 2+ boletos) ---------- */
+
+test('validarNombresExtra no exige nada si la cantidad es 1 (aunque manden el campo)', () => {
+  const r = validarNombresExtra('1', JSON.stringify(['Alguien']));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nombres, []);
+});
+
+test('validarNombresExtra es opcional: si el cliente no lo manda, la compra no se rechaza', () => {
+  const r1 = validarNombresExtra('3', undefined);
+  assert.equal(r1.ok, true);
+  assert.deepEqual(r1.nombres, []);
+  const r2 = validarNombresExtra('3', '');
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.nombres, []);
+});
+
+test('validarNombresExtra acepta exactamente cantidad-1 nombres válidos y los sanitiza', () => {
+  const r = validarNombresExtra('3', JSON.stringify(['  Juan Pérez  ', 'Ana López']));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nombres, ['Juan Pérez', 'Ana López']);
+});
+
+test('validarNombresExtra rechaza si no vienen exactamente cantidad-1 nombres', () => {
+  const faltan = validarNombresExtra('3', JSON.stringify(['Solo uno']));
+  assert.equal(faltan.ok, false);
+  const sobran = validarNombresExtra('2', JSON.stringify(['Uno', 'Dos']));
+  assert.equal(sobran.ok, false);
+});
+
+test('validarNombresExtra rechaza nombres inválidos (cortos, con números o vacíos)', () => {
+  assert.equal(validarNombresExtra('2', JSON.stringify(['An'])).ok, false);
+  assert.equal(validarNombresExtra('2', JSON.stringify(['Juan123'])).ok, false);
+  assert.equal(validarNombresExtra('2', JSON.stringify([''])).ok, false);
+});
+
+test('validarNombresExtra rechaza JSON malformado o que no es un arreglo', () => {
+  assert.equal(validarNombresExtra('2', '{esto no es json').ok, false);
+  assert.equal(validarNombresExtra('2', JSON.stringify({ no: 'es un arreglo' })).ok, false);
 });

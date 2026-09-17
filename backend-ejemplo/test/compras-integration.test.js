@@ -285,3 +285,55 @@ test('POST /api/escanear con un código que no existe responde NO_ENCONTRADO', a
   assert.equal(res.status, 404);
   assert.equal((await res.json()).resultado, 'NO_ENCONTRADO');
 });
+
+/* ---------- 7. Nombre por boleto (2+ boletos) ---------- */
+
+test('POST /api/compras rechaza nombresExtra si no trae la cantidad correcta de nombres', async () => {
+  const fd = formularioCompra({ cantidad: '3' });
+  fd.append('nombresExtra', JSON.stringify(['Solo uno']));
+  const res = await fetch(`${base}/api/compras`, { method: 'POST', body: fd });
+  assert.equal(res.status, 400);
+  const json = await res.json();
+  assert.ok(json.campos.includes('nombresExtra'));
+});
+
+test('una compra con nombresExtra guarda el nombre de cada boleto, y el correo de confirmación los lista', async () => {
+  const fd = formularioCompra({ nombre: 'Carla Gómez', email: 'carla@correo.com', cantidad: '3' });
+  fd.append('nombresExtra', JSON.stringify(['Luis Torres', 'Marta Díaz']));
+  const res = await fetch(`${base}/api/compras`, { method: 'POST', body: fd });
+  assert.equal(res.status, 200);
+  const { folio } = await res.json();
+
+  const fila = filas.find((f) => f.folio === folio);
+  assert.deepEqual(JSON.parse(fila.nombresBoletos), ['Luis Torres', 'Marta Díaz']);
+
+  const resConf = await fetch(`${base}/api/confirmar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ folio }),
+  });
+  assert.equal(resConf.status, 200);
+
+  const correo = correosEnviados.find((c) => c.to === 'carla@correo.com' && c.subject.includes('Pago confirmado'));
+  assert.ok(correo, 'debe mandarse el correo de confirmación al comprador');
+  assert.match(correo.html, /Carla Gómez - Luis Torres/);
+  assert.match(correo.html, /Carla Gómez - Marta Díaz/);
+});
+
+test('una compra de 1 boleto no manda nombresExtra y el correo de confirmación no muestra la lista de titulares', async () => {
+  const res = await fetch(`${base}/api/compras`, {
+    method: 'POST',
+    body: formularioCompra({ nombre: 'Dario Ruiz', email: 'dario@correo.com', cantidad: '1' }),
+  });
+  const { folio } = await res.json();
+
+  await fetch(`${base}/api/confirmar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ folio }),
+  });
+
+  const correo = correosEnviados.find((c) => c.to === 'dario@correo.com' && c.subject.includes('Pago confirmado'));
+  assert.ok(correo);
+  assert.doesNotMatch(correo.html, /Boletos a nombre de/);
+});

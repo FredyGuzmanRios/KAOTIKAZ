@@ -127,6 +127,19 @@ function abrirModal(caso) {
   document.getElementById('mMonto').textContent    = '$' + caso.monto + '.00 MXN exactos';
   document.getElementById('mClabe').textContent    = caso.clabe;
 
+  // Nombre por boleto (2+ boletos): "nombre comprador - nombre boleto
+  // persona", el mismo formato que va en el correo de confirmación con
+  // el QR (ver backend-ejemplo/lib/brevo.js), para que el staff pueda
+  // verificarlos antes de confirmar.
+  const filaNombresBoletos = document.getElementById('mNombresBoletosRow');
+  const tieneNombresBoletos = Array.isArray(caso.nombresBoletos) && caso.nombresBoletos.length > 0;
+  filaNombresBoletos.classList.toggle('hidden', !tieneNombresBoletos);
+  if (tieneNombresBoletos) {
+    const lista = [`${caso.nombre} (boleto 1)`,
+      ...caso.nombresBoletos.map((n, i) => `${caso.nombre} - ${n} (boleto ${i + 2})`)];
+    document.getElementById('mNombresBoletos').textContent = lista.join(' · ');
+  }
+
   const badge = document.getElementById('mBadge');
   const esPend = caso.estado === 'PENDIENTE';
   badge.textContent = caso.estado;

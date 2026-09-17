@@ -11,7 +11,7 @@ const ENCABEZADOS = [
   'Folio', 'Fecha', 'Nombre', 'Email', 'WhatsApp', 'Cantidad',
   'Monto', 'ClabeCifrada', 'ComprobanteURL', 'Estado',
   'FechaValidado', 'CodigoQR', 'QREnviado', 'EmailRegistro',
-  'EmailConfirmacion', 'Notas', 'EscaneadoEn',
+  'EmailConfirmacion', 'Notas', 'EscaneadoEn', 'NombresBoletos',
 ];
 
 async function main() {
@@ -39,7 +39,7 @@ async function main() {
 
   // Encabezados de Compras
   await sheets.spreadsheets.values.update({
-    spreadsheetId, range: 'Compras!A1:Q1',
+    spreadsheetId, range: 'Compras!A1:R1',
     valueInputOption: 'RAW',
     requestBody: { values: [ENCABEZADOS] },
   });
